@@ -16,7 +16,9 @@ module EvilCTF::Uploader
   # ---------------------------------------------
   # Upload a local file to the remote target (chunked)
   # ---------------------------------------------
-  def self.upload_file(local_path, remote_path, shell, encrypt: false, chunk_size: 40000)
+  def self.upload_file(local_path, remote_path, shell,
+                       encrypt: false,
+                       chunk_size: 40000)
     return false unless File.exist?(local_path)
 
     content = File.binread(local_path)
@@ -95,25 +97,42 @@ module EvilCTF::Uploader
   # ---------------------------------------------
   # Download a remote file to the local machine
   # ---------------------------------------------
-  def self.download_file(remote_path, local_path, shell)
+  def self.download_file(remote_path, local_path, shell,
+                         encrypt: false,
+                         allow_empty: true)
+    # Verify that the file exists on the target
     exist = shell.run("Test-Path '#{remote_path}'")
     log_debug("Exist check output:\n#{exist.output}")
     return false unless exist.output.strip == 'True'
 
+    # Read the remote file as Base64
     result = shell.run("[Convert]::ToBase64String([IO.File]::ReadAllBytes('#{remote_path}'))")
+
+    if result.nil? || result.output.nil?
+      puts "[!] Unable to read remote file: #{remote_path}"
+      return false
+    end
+
     log_debug("Download script output:\n#{result.output}")
-    return false if result.output.strip.empty?
 
-    clean_output = result.output.strip
-    clean_output = clean_output.split("\n").last.strip if clean_output.include?("\n")
+    # Empty file check – skip if allowed
+    if result.output.strip.empty?
+      puts "[!] Remote file is empty; skipping download."
+      return true unless allow_empty
+    end
 
+    # Extract the Base64 string (last line in case of multiline output)
+    clean_output = result.output.strip.split("\n").last.strip
     unless clean_output =~ /^[A-Za-z0-9+\/=]+$/
       puts "[!] Invalid base64 data received for #{remote_path}"
       puts "[!] Output preview: #{clean_output[0..100]}..."
       return false
     end
 
+    # Decode and optionally XOR‑encrypt the payload
     data = Base64.strict_decode64(clean_output)
+    data = xor_crypt(data) if encrypt
+
     FileUtils.mkdir_p(File.dirname(local_path))
     File.binwrite(local_path, data)
 
@@ -136,9 +155,9 @@ module EvilCTF::Uploader
       puts "3. Unzip remote file"
       puts "4. Exit menu"
       print "Choice: "
-      
+
       choice = Readline.readline.strip rescue nil
-      
+
       break if choice.nil? || choice == '4'
 
       case choice
@@ -245,6 +264,17 @@ module EvilCTF::Uploader
   rescue => e
     puts "[!] XOR crypt failed: #{e.message}"
     data
+  end
+
+  # ---------------------------------------------
+  # Helper to get system architecture from PowerShell
+  # ---------------------------------------------
+  def self.get_system_architecture(shell)
+    arch = shell.run('$env:PROCESSOR_ARCHITECTURE').output.strip
+    arch
+  rescue => e
+    puts "[!] Unable to detect architecture: #{e.message}"
+    'UNKNOWN'
   end
 end
 
