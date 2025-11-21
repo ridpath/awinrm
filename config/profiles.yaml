@@ -1,0 +1,25 @@
+# config/profiles.yaml
+
+# Example profile for a single host
+default:
+  ip: "10.0.0.5"
+  user: "Administrator"
+  password: "P@ssw0rd!"
+  port: 5986
+  ssl: true
+  webhook: "https://webhook.example.com/loot"
+
+# Profile that disables Defender automatically and uses random names
+stealth:
+  ip: "10.0.0.5"
+  user: "Administrator"
+  password: "P@ssw0rd!"
+  port: 5986
+  ssl: true
+  stealth: true
+  random_names: true
+  auto_evasion: true
+
+# Multi‑host profile (list of hosts in a separate file)
+multi:
+  hosts_file: "./hosts.txt"
