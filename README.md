@@ -1,9 +1,13 @@
 # AWINRM
-### Advanced WinRM Shell for CTFs, Red Teams, and Offensive Research 
-AWINRM is an operator focused WinRM framework under active development.  
-Features, macros, and internal behavior may evolve as the tool matures.  
+### Advanced WinRM Shell for CTFs, Red Teams, & Offensive Research
+
+AWINRM is an operator‑focused WinRM framework under active development.  
+Features, macros, and internal behavior may evolve as the tool matures.
+
 > 🚧 **ALPHA NOTICE**: AWINRM is under **active development**. Expect breaking changes, experimental syntax, and rapid iteration. Not yet production safe. Ideal for red team labs, research, or prototyping offensive techniques.
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange)
+
+
 
 ```
  █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
@@ -18,46 +22,48 @@ Features, macros, and internal behavior may evolve as the tool matures.
 
 ---
 
-## Background & Project Origin
-
-AWINRM began as an effort to address consistent operational challenges encountered during Active Directory exploitation and red-team training scenarios, particularly throughout HackTheBox Pro Labs such as **P.O.O.**, **RastaLabs**, **Zephyr**, **Dante**, and similar AD enterprise environments.
-
-Recurring pain points included:
-
-- unreliable tool staging  
-- WinRM upload failures on large binaries  
-- lack of IPv6 handling  
-- AMSI and ETW blocking essential operator tooling  
-- repetitive steps for recon and credential collection  
-- inconsistent PowerShell behavior between systems  
-- limited automation for enumeration and stealth workflows  
-
-AWINRM was designed to solve these practical issues using real-world operator workflows as the foundation. Over time, the project evolved into a feature-rich WinRM shell with its own architecture, tooling subsystem, bypass modules, and workflow automation.
 
 ---
 
-# Key Features
+## Background & Project Origin
 
-## AMSI and ETW Bypass Automation 
-- In-memory AMSI patching  
+AWINRM began as an effort to address consistent operational challenges encountered during Active Directory exploitation and red‑team training scenarios, particularly throughout HackTheBox Pro Labs such as **P.O.O.**, **RastaLabs**, **Zephyr**, **Dante** and similar AD enterprise environments.
+
+Recurring pain points included:
+
+* Unreliable tool staging  
+* WinRM upload failures on large binaries  
+* Lack of IPv6 handling  
+* AMSI & ETW blocking essential operator tooling  
+* Repetitive steps for recon and credential collection  
+* Inconsistent PowerShell behavior across systems  
+* Limited automation for enumeration and stealth workflows  
+
+AWINRM was designed to solve these practical issues using real‑world operator workflows as the foundation. Over time, the project evolved into a feature‑rich WinRM shell with its own architecture, tooling subsystem, bypass modules, and workflow automation.
+
+---
+
+## Key Features
+
+### AMSI & ETW Bypass Automation
+- In‑memory AMSI patching  
 - ETW provider neutralization  
 - Automatic or manual invocation  
 - Updated for modern Windows 10/11 and Server environments
 
-## Tool Auto-Staging Framework
+### Tool Auto‑Staging Framework
 Automates fetching, staging, and extracting common operator tools:
-
-- SharpHound  
+- SharpHound (BloodHound Collector)  
 - Rubeus  
 - PowerView  
 - Mimikatz  
 - WinPEAS  
 - Seatbelt  
 - Inveigh  
-- ProcDump (arch-aware)  
+- ProcDump (arch‑aware)  
 - Nishang modules  
 - Plink  
-- SOCKS/port-forwarding utilities  
+- SOCKS/port‑forwarding utilities  
 
 Capabilities:
 - ZIP extraction  
@@ -70,16 +76,16 @@ Capabilities:
 --socks 127.0.0.1:1080
 ```
 
-## Enhanced File Operations
+
+### Enhanced File Operations
 - Chunked Base64 uploads for large binaries  
 - Reliable downloads  
 - Optional XOR encoding  
 - Remote ZIP extraction  
-- Multi-step file validation  
+- Multi‑step file validation  
 
-## Automated Loot Extraction
+### Automated Loot Extraction
 Detects common output patterns:
-
 - CTF style flags  
 - credentials  
 - NTLM/LM hashes  
@@ -99,9 +105,8 @@ loot/creds.json
 
 Optional webhook support is available.
 
-## Recon and Attack Macros
+### Recon and Attack Macros
 Predefined operator workflows:
-
 - Kerberoasting  
 - PowerView domain enumeration  
 - LSASS dumping  
@@ -111,9 +116,8 @@ Predefined operator workflows:
 - SOCKS proxy initialization  
 - SharpHound collection  
 
-## Session Intelligence Banner
+### Session Intelligence Banner
 Automatically collects:
-
 - hostname and domain  
 - OS version and architecture  
 - active sessions  
@@ -124,36 +128,40 @@ Automatically collects:
 - loot counts  
 - tool staging status  
 
-## Operator & Workflow Enhancements
+### Operator & Workflow Enhancements
 - automatic flag/user/root detection  
 - IPv6 alias handling  
 - session logging  
 - persistent history  
 - local shell escapes (`!bash`)  
-- multi-host execution workflows  
+- multi‑host execution workflows  
 
 ---
 
-# Installation
+## Installation
 
 AWINRM requires **Ruby 3.0+** and **Bundler**.
 
-Install dependencies:
-
-```
+```bash
 bundle install
 ```
 
 ### Gemfile
 
 ```
+# Gemfile (updated for Ruby 3.2+)
+
 source 'https://rubygems.org'
 
-gem 'winrm'
-gem 'winrm-fs'
-gem 'socksify'
-gem 'concurrent-ruby'
-gem 'rubyzip'
+gem 'winrm', '~> 2.3.9'          # WinRM client, fully compatible with Ruby 3.x
+gem 'socksify', '~> 1.8.1'       # TCP‑Socks proxy support
+gem 'concurrent-ruby', '~> 1.2.0'
+gem 'net-smtp', '~> 0.3.4'
+gem 'rubyzip', '~> 2.0'
+
+# Bundler itself
+gem 'bundler', '~> 2.4.0'
+
 ```
 
 Ruby’s standard library covers the remaining imports (optparse, ipaddr, socket, fileutils, etc.).
@@ -164,22 +172,22 @@ Ruby’s standard library covers the remaining imports (optparse, ipaddr, socket
 
 ## Basic authentication
 ```
-ruby awinrm.rb -i 10.10.10.10 -u Administrator -p Welcome1!
+ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Welcome1!
 ```
 
 ## Pass-the-Hash
 ```
-ruby awinrm.rb -i 10.10.10.10 -u Administrator -H <NTLM_HASH>
+ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -H <NTLM_HASH>
 ```
 
 ## HTTPS transport
 ```
-ruby awinrm.rb -i host.local --ssl -u user -p pass
+ruby bin/evil-ctf.rb -i host.local --ssl -u user -p pass
 ```
 
 ## SOCKS proxy pivot
 ```
-ruby awinrm.rb -i 192.168.5.20 --socks 127.0.0.1:1080 -u svc -p Winter2025
+ruby bin/evil-ctf.rb -i 192.168.5.20 --socks 127.0.0.1:1080 -u svc -p Winter2025
 ```
 
 ## Stage all tools
@@ -208,11 +216,17 @@ dom_enum
 
 ```
 AWINRM/
- ├── awinrm.rb
- ├── tools/
- ├── loot/
- ├── profiles/
- ├── README.md
+ ├── bin/evil-ctf.rb          # CLI entry point
+ ├── lib/evil_ctf              # Core modules
+ │   ├── banner.rb            # Banner & system info
+ │   ├── enums.rb             # Enumeration presets
+ │   ├── session.rb           # Session loop & command handling
+ │   ├── shell_wrapper.rb     # WinRM connection helpers
+ │   ├── tools.rb             # Tool registry & macros
+ │   └── uploader.rb          # File upload/download utilities
+ ├── loot/                    # Collected artifacts
+ ├── profiles/                # YAML configuration profiles
+ ├── README.md                 # This document
  └── LICENSE
 ```
 
