@@ -86,12 +86,12 @@ module EvilCTF::Tools
     },
     nishang: {
       name: "Nishang", 
-      filename: "nishang.ps1",
+      filename: "nishang.zip",
       description: "PowerShell attack framework",
       category: "reconnaissance",
       download_url: "https://github.com/samratashok/nishang/archive/refs/tags/v0.7.6.zip",
       backup_urls: [],
-      recommended_remote: "C:\\Users\\Public\\nishang.ps1"
+      recommended_remote: "C:\\Users\\Public\\nishang.zip"
     },
     plink: {
       name: "Plink", 
