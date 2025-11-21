@@ -9,6 +9,12 @@ require 'readline'
 require 'timeout'
 
 module EvilCTF::Session
+  DEBUG = ENV['EVC_DEBUG'] == 'true'  # set EVC_DEBUG=true to enable verbose output
+
+  def self.log_debug(msg)
+    puts "[DEBUG] #{msg}" if DEBUG
+  end
+
   # Alias for the uploader helper
   Uploader = EvilCTF::Uploader
 
@@ -24,15 +30,18 @@ module EvilCTF::Session
 
     EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
 
-    puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint)..."
+    log_debug("Testing connection to #{orig_ip} (using #{host} in endpoint)...")
     unless EvilCTF::ShellWrapper.test_connection(endpoint, session_options[:user], session_options[:password],
                                                 hash: session_options[:hash], ssl: session_options[:ssl])
       puts "[-] Connection test failed for #{orig_ip}"
       return false
     end
 
-    conn = EvilCTF::ShellWrapper.create_connection(endpoint, session_options[:user], session_options[:password],
-                                                   hash: session_options[:hash], ssl: session_options[:ssl])
+    conn = EvilCTF::ShellWrapper.create_connection(endpoint,
+                                                    session_options[:user],
+                                                    session_options[:password],
+                                                    hash: session_options[:hash],
+                                                    ssl: session_options[:ssl])
     shell = conn.shell(:powershell)
     logger = SessionLogger.new(session_options[:logfile])   # <-- defined below
     history = CommandHistory.new
@@ -51,22 +60,24 @@ module EvilCTF::Session
     setup_autocomplete(history)
 
     enum_cache = {}
-    run_enumeration(shell, type: session_options[:enum], cache: enum_cache,
-                   fresh: session_options[:fresh]) if session_options[:enum]
+    run_enumeration(shell,
+                    type: session_options[:enum],
+                    cache: enum_cache,
+                    fresh: session_options[:fresh]) if session_options[:enum]
 
     puts "Type 'help' for commands, '__exit__' or 'exit' to quit, or !bash for local shell.\n\n"
 
     # Main loop flag
     should_exit = false
-    
+
     loop do
       break if should_exit
-      
+
       begin
         Timeout.timeout(1800) do
           prompt = shell.run('prompt').output
           input  = Readline.readline(prompt, true)
-          
+
           # Handle EOF (Ctrl+D) explicitly 
           if input.nil?
             puts '[*] EOF detected - exiting session...'
@@ -77,7 +88,7 @@ module EvilCTF::Session
           input = input.strip
           next if input.empty?
 
-          # Exit commands - make sure these are checked first
+          # Exit commands – check first
           case input.downcase
           when 'exit', 'quit', '__exit__', 'q'
             puts '[*] Exiting session...'
@@ -89,6 +100,7 @@ module EvilCTF::Session
 
           case input
           when /^help$/i
+            log_debug("User requested help")
             puts "\nBuiltin commands:"
             puts '  help                 - This help'
             puts '  clear                - Clear screen'
@@ -143,32 +155,52 @@ module EvilCTF::Session
             Uploader.file_operations_menu(shell)
             next
           when /^upload\s+(.+)\s+(.+)$/i
-            local_path = Regexp.last_match(1).strip
-            remote_path = Regexp.last_match(2).strip
-            puts "[*] Uploading file..."
-            puts "  Source: #{local_path}"
-            puts "  Destination: #{remote_path}"
-            if EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
+            local = Regexp.last_match(1).strip
+            remote = Regexp.last_match(2).strip
+            log_debug("Attempting upload: #{local} -> #{remote}")
+            if !File.exist?(local)
+              puts "[-] Source file does not exist: #{local}"
+              next
+            end
+
+            dir_path = File.dirname(remote).gsub('\\', '\\\\')
+            unless dir_path.empty?
+              mkdir_cmd = "New-Item -Path '#{dir_path}' -ItemType Directory -Force -ErrorAction SilentlyContinue"
+              log_debug("Creating directory: #{mkdir_cmd}")
+              shell.run(mkdir_cmd)
+            end
+
+            if Uploader.upload_file(local, remote, shell)
               puts "[+] File uploaded successfully"
             else
               puts "[-] Upload failed"
             end
-            next
           when /^download\s+(.+)\s+(.+)$/i
-            remote_path = Regexp.last_match(1).strip
-            local_path = Regexp.last_match(2).strip
-            puts "[*] Downloading file..."
-            puts "  Source: #{remote_path}"
-            puts "  Destination: #{local_path}"
-            if EvilCTF::Uploader.download_file(remote_path, local_path, shell)
+            remote = Regexp.last_match(1).strip
+            local = Regexp.last_match(2).strip
+            log_debug("Attempting download: #{remote} -> #{local}")
+            if !File.exist?(local)
+              puts "[-] Destination path does not exist: #{local}"
+              next
+            end
+
+            exist = shell.run("Test-Path '#{remote}'")
+            log_debug("Exist check output:\n#{exist.output}")
+            unless exist.output.strip == 'True'
+              puts "[-] Source file does not exist on target: #{remote}"
+              next
+            end
+
+            if Uploader.download_file(remote, local, shell)
               puts "[+] File downloaded successfully"
             else
               puts "[-] Download failed"
             end
-            next
           when /^enum(?:\s+(\S+))?$/i
             t = Regexp.last_match(1) || 'basic'
-            run_enumeration(shell, type: t, cache: enum_cache,
+            run_enumeration(shell,
+                            type: t,
+                            cache: enum_cache,
                             fresh: session_options[:fresh])
             next
           when /^disable_defender$/i
@@ -190,10 +222,12 @@ module EvilCTF::Session
             if key == 'all'
               puts "[*] Staging all tools..."
               EvilCTF::Tools::TOOL_REGISTRY.each_key do |tool_key|
-                EvilCTF::Tools.safe_autostage(tool_key, shell, session_options, logger)
+                EvilCTF::Tools.safe_autostage(tool_key, shell,
+                                              session_options, logger)
               end
             else
-              EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
+              EvilCTF::Tools.safe_autostage(key, shell,
+                                            session_options, logger)
             end
             next
           when /^!bash$/i, /^!sh$/i
@@ -213,7 +247,7 @@ module EvilCTF::Session
           start = Time.now
           result = shell.run(cmd)
           elapsed = Time.now - start
-          puts result.output
+          log_debug("Command executed: #{cmd}\nOutput:\n#{result.output}")
           matches = EvilCTF::Tools.grep_output(result.output)
           if matches.any?
             EvilCTF::Tools.save_loot(matches)
@@ -241,16 +275,13 @@ module EvilCTF::Session
 
     # Ensure proper shell cleanup with better error handling
     begin
-      # Try to close the shell properly - check if it's a WinRM shell object and close appropriately
       if shell && !shell.nil?
-        # Use the correct method to close WinRM shell without causing errors
         shell.close rescue nil
       end
     rescue => e
-      # Suppress cleanup errors to avoid spamming output
-      # Just make sure we don't print the error that causes junk output
+      log_debug("Cleanup error: #{e.message}")
     end
-    
+
     puts '[+] Session closed.'
     true
   end
@@ -327,7 +358,10 @@ module EvilCTF::Session
 
   # Run enumeration method - delegate to Enums module
   def self.run_enumeration(shell, type:, cache:, fresh:)
-    EvilCTF::Enums.run_enumeration(shell, type: type, cache: cache, fresh: fresh)
+    EvilCTF::Enums.run_enumeration(shell,
+                                   type: type,
+                                   cache: cache,
+                                   fresh: fresh)
   rescue => e
     puts "[!] Enumeration failed: #{e.message}"
   end
