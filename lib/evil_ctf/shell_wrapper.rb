@@ -1,3 +1,5 @@
+# lib/evil_ctf/shell_wrapper.rb
+
 require 'winrm'
 require 'ipaddr'
 

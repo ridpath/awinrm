@@ -22,7 +22,7 @@ module EvilCTF::Banner
   BANNER
 
     puts "\n" + '=' * 70
-    puts 'AWINRM SESSION'.center(70)
+    puts 'EVIL-WINRM CTF SESSION'.center(70)
     puts '=' * 70
 
     # ---------- Basic system info ----------

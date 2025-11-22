@@ -230,6 +230,13 @@ module EvilCTF::Uploader
             next
           end
 
+          # Create directory structure on target if needed
+          dir_path = File.dirname(remote).gsub('\\', '/')
+          unless dir_path.empty?
+            mkdir_cmd = "New-Item -Path '#{dir_path}' -ItemType Directory -Force -ErrorAction SilentlyContinue"
+            shell.run(mkdir_cmd)
+          end
+
           if self.upload_file(local, remote, shell)
             puts "[+] File uploaded successfully"
           else
@@ -244,6 +251,13 @@ module EvilCTF::Uploader
         print "Destination file path (attacker machine): "
         local = Readline.readline.strip rescue nil
         if remote && local
+          # Validate that source exists on target
+          exist = shell.run("Test-Path '#{remote}'")
+          if exist.output.strip != 'True'
+            puts "[-] Source file does not exist on target: #{remote}"
+            next
+          end
+
           if self.download_file(remote, local, shell)
             puts "[+] File downloaded successfully"
           else
@@ -322,4 +336,3 @@ module EvilCTF::Uploader
     'UNKNOWN'
   end
 end
-
