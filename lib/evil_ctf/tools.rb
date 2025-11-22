@@ -52,12 +52,12 @@ module EvilCTF::Tools
     },
     winpeas: {
       name: "WinPEAS", 
-      filename: "winPEASx64.exe",
+      filename: "winPEAS.exe",
       description: "Windows local enumeration tool",
       category: "enumeration",
-      download_url: "https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASx64.exe",
+      download_url: "https://github.com/peass-ng/PEASS-ng/releases/download/20251115-0322d43c/winPEASany.exe",
       backup_urls: [],
-      recommended_remote: "C:\\Users\\Public\\winPEASx64.exe"
+      recommended_remote: "C:\\Users\\Public\\winPEAS.exe"
     },
     seatbelt: {
       name: "Seatbelt", 
