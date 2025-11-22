@@ -56,18 +56,32 @@ module EvilCTF::Session
 
     puts "Type 'help' for commands, '__exit__' or 'exit' to quit, or !bash for local shell.\n\n"
 
+    # Main loop flag
+    should_exit = false
+    
     loop do
+      break if should_exit
+      
       begin
         Timeout.timeout(1800) do
           prompt = shell.run('prompt').output
           input  = Readline.readline(prompt, true)
-          break if input.nil?
+          
+          # Handle EOF (Ctrl+D) explicitly 
+          if input.nil?
+            puts '[*] EOF detected - exiting session...'
+            should_exit = true
+            break
+          end
 
           input = input.strip
           next if input.empty?
 
-          if input =~ /^(exit|quit|__exit__)$/i
+          # Exit commands - make sure these are checked first
+          case input.downcase
+          when 'exit', 'quit', '__exit__', 'q'
             puts '[*] Exiting session...'
+            should_exit = true
             break
           end
 
@@ -130,7 +144,7 @@ module EvilCTF::Session
             next
           when /^enum(?:\s+(\S+))?$/i
             t = Regexp.last_match(1) || 'basic'
-            EvilCTF::Enums.run_enumeration(shell, type: t, cache: enum_cache,
+            run_enumeration(shell, type: t, cache: enum_cache,
                             fresh: session_options[:fresh])
             next
           when /^disable_defender$/i
@@ -187,14 +201,31 @@ module EvilCTF::Session
         end
       rescue Timeout::Error
         puts "\n[!] Idle timeout — closing session"
+        should_exit = true
         break
       rescue Interrupt
         puts "\n[!] Ctrl-C detected; exiting."
+        should_exit = true
         break
+      rescue => e
+        puts "[!] Session error: #{e.message}"
+        puts "[!] Continuing session..."
+        # Don't break on general errors, let user continue
+        next
       end
     end
 
-    shell.close
+    # Proper shell cleanup with error handling
+    begin
+      if shell && !shell.nil?
+        shell.close rescue nil
+      end
+    rescue => e
+      # Suppress cleanup errors to avoid spamming output
+    ensure
+      shell = nil
+    end
+    
     puts '[+] Session closed.'
     true
   end
@@ -246,29 +277,6 @@ module EvilCTF::Session
     hosts
   end
 
-  # IPv6 handling (adds an entry to /etc/hosts)
-  def self.add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
-    hosts_file = '/etc/hosts'
-    entry = "#{ip} #{hostname}"
-    return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
-
-    puts "[*] Adding IPv6 entry to #{hosts_file}: #{entry}"
-    cmd = "echo '#{entry}' >> #{hosts_file}"
-
-    if Process.uid == 0
-      system(cmd)
-    else
-      system("sudo sh -c \"#{cmd}\"")
-    end
-
-    unless $?.success?
-      puts "[!] Failed to add entry to #{hosts_file}. Please add manually: sudo echo '#{entry}' >> #{hosts_file}"
-      exit 1
-    end
-
-    puts "[+] Entry added successfully"
-  end
-
   # ------------------------------------------------------------------
   # Logging helper
   # ------------------------------------------------------------------
@@ -285,8 +293,6 @@ module EvilCTF::Session
         f.puts "=== Session started: #{@start} ==="
         f.puts
       end
-    rescue => e
-      puts "[!] Logger setup failed: #{e.message}"
     end
 
     def log_command(cmd, result, elapsed = nil, pid = nil, exit_code = nil)
@@ -298,8 +304,6 @@ module EvilCTF::Session
         f.puts "[#{Time.now}] << Completed in #{elapsed&.round(2)}s | PID: #{pid} | Exit: #{exit_code}"
         f.puts
       end
-    rescue => e
-      puts "[!] Logger failed: #{e.message}"
     end
   end
 
