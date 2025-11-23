@@ -72,7 +72,10 @@ options = {
   list_tools: false,
   enum: nil,
   fresh: false,
-  hosts: nil
+  hosts: nil,
+  kerberos: false,
+  realm: nil,
+  keytab: nil
 }
 
 OptionParser.new do |opts|
@@ -101,6 +104,9 @@ OptionParser.new do |opts|
     options[:enum] = v
   end
   opts.on('--fresh', 'Bypass enum cache (always fresh)') { options[:fresh] = true }
+  opts.on('-k', '--kerberos', 'Use Kerberos authentication') { options[:kerberos] = true }
+  opts.on('--realm REALM', 'Kerberos realm') { |v| options[:realm] = v }
+  opts.on('--keytab FILE', 'Keytab file for Kerberos') { |v| options[:keytab] = v }
   opts.on('-h', '--help', 'Show help') do
     puts opts
     exit
@@ -158,8 +164,8 @@ end
   abort "[-] Missing required --#{k}" unless options[k]
 end
 
-unless options[:password] || options[:hash]
-  abort "[-] Must provide either --password or --hash"
+unless options[:password] || options[:hash] || options[:kerberos]
+  abort "[-] Must provide either --password, --hash, or --kerberos"
 end
 
 add_ipv6_to_hosts(options[:ip].split('%').first, 'ipv6addr') if options[:ip].match?(/:/)
