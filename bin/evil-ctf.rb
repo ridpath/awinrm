@@ -45,6 +45,7 @@ require 'evil_ctf/shell_wrapper'
 require 'evil_ctf/banner'
 require 'evil_ctf/enums'
 require 'evil_ctf/uploader'
+require 'evil_ctf/sql_enum'
 
 # ---------------- Preflight Check ----------------
 def run_preflight_check
