@@ -45,6 +45,87 @@ AWINRM was designed to solve these practical issues using real‑world operator 
 
 ## Key Features
 
+### Banner System (Minimal & Expanded Modes)
+
+AWINRM now features two banner modes:
+
+Minimal (default):
+Optimized for CTFs. Displays a fast summary of core recon data, privileges, AV/EDR state, and performs a quick flag scan.
+
+Expanded (--banner expanded):
+Shows advanced recon including MSSQL information, patch state, risk scores, and live attack suggestions.
+
+Run expanded banner like this:
+```
+
+ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Passw0rd! --banner expanded
+```
+
+
+Both modes gather extensive intelligence automatically:
+
+Hostname, domain, and logged-in user
+
+Architecture and OS version
+
+PowerShell language mode
+
+AV & Defender status
+
+SeDebug / SeImpersonate privilege detection
+
+UAC level and integrity context
+
+IPv6 support and current sessions
+
+Transport type, port, and SSL usage
+
+Credential type (hash/password)
+
+Random name generation / stealth mode / webhook status
+
+Loot summary (total files + JSONs)
+
+PowerShell version
+
+System uptime, CPU & RAM usage
+
+Expanded Banner also includes:
+
+MSSQL detection with:
+
+SQL version
+
+Current SQL user
+
+Available databases
+
+Linked servers
+
+Patch status checks:
+
+MS17-010 (EternalBlue)
+
+MS14-068 (Kerberos)
+
+MS08-067 (NetAPI)
+
+Security & risk scoring:
+
+Auto-evaluates privilege level
+
+Explains possible attack paths
+
+Suggests recon or exploitation actions
+
+Evaluates LSASS access, UAC bypass, lateral movement
+
+Trust relationships:
+
+Domain trust info
+
+Shadow copies and GPO discovery
+
 ### AMSI & ETW Bypass Automation
 - In‑memory AMSI patching  
 - ETW provider neutralization  
@@ -115,18 +196,7 @@ Predefined operator workflows:
 - Nishang scans  
 - SOCKS proxy initialization  
 - SharpHound collection  
-
-### Session Intelligence Banner
-Automatically collects:
-- hostname and domain  
-- OS version and architecture  
-- active sessions  
-- UAC configuration  
-- Defender/AV status  
-- PowerShell language mode  
-- transport details  
-- loot counts  
-- tool staging status  
+ 
 
 ### Operator & Workflow Enhancements
 - automatic flag/user/root detection  
