@@ -1,5 +1,129 @@
+# lib/evil_ctf/banner.rb
 module EvilCTF::Banner
+  def self.show_banner(shell, options, mode: :minimal)
+    case mode
+    when :minimal
+      show_minimal_banner(shell, options)
+    when :expanded
+      show_expanded_banner(shell, options)
+    else
+      show_minimal_banner(shell, options)
+    end
+  end
+
+  # Backward compatibility - keep the old method name
   def self.show_banner_with_flagscan(shell, options)
+    show_banner(shell, options, mode: :expanded)
+  end
+
+  def self.show_minimal_banner(shell, options)
+    puts <<~BANNER
+
+     █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
+    ██╔══██╗██║    ██║██║████╗  ██║██╔══██╗████╗ ████║
+    ███████║██║ █╗ ██║██║██╔██╗ ██║██████╔╝██╔████╔██║
+    ██╔══██║██║███╗██║██║██║╚██╗██║██╔══██╗██║╚██╔╝██║
+    ██║  ██║╚███╔███╔╝██║██║ ╚████║██║  ██║██║ ╚═╝ ██║
+    ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝
+
+                    AWINRM OPERATOR SHELL
+
+    CTF Edition v2025 — For Red Teamers & Flag Hunters
+    🔹 Quick enum: `enum basic` | Full recon: `enum deep`
+    🔹 Credentials: `dump_creds` | Memory: `lsass_dump`
+    🔹 Bypass: `bypass-4msi` | Shell: `!bash`
+    🔹 Tools: `tool all` | Help: `menu`
+
+    BANNER
+
+    puts "\n" + '=' * 70
+    puts 'AWINRM CTF SESSION - MINIMAL MODE'.center(70)
+    puts '=' * 70
+
+    # Essential System Information
+    hostname = shell.run('hostname').output.strip
+    current_user = shell.run('[Security.Principal.WindowsIdentity]::GetCurrent().Name').output.strip
+    integrity = shell.run('whoami /groups | findstr "Mandatory Label" | findstr /v "Level"').output.strip.split.first || "Unknown"
+    domain = shell.run('(Get-WmiObject Win32_ComputerSystem).Domain').output.strip
+
+    puts "\nESSENTIAL SYSTEM INFO:"
+    puts "  Hostname     : #{hostname}"
+    puts "  Domain       : #{domain}"
+    puts "  Current User : #{current_user}"
+    puts "  Integrity    : #{integrity}"
+
+    # Quick Privilege Check
+    puts "\nPRIVILEGE CHECK:"
+    priv_check = shell.run('whoami /priv').output
+    if priv_check.include?('SeDebugPrivilege')
+      puts "  [!] SeDebugPrivilege - LSASS access possible"
+    end
+    if priv_check.include?('SeImpersonatePrivilege')
+      puts "  [!] SeImpersonatePrivilege - Potato attacks possible"
+    end
+
+    # Defender Status
+    defender = shell.run('(Get-MpComputerStatus).RealTimeProtectionEnabled').output.strip
+    puts "  Defender     : #{defender == 'True' ? 'ENABLED' : 'DISABLED'}"
+
+    # Connection Info
+    puts "\nCONNECTION:"
+    puts "  Transport    : #{options[:ssl] ? 'HTTPS' : 'HTTP'}"
+    puts "  Port         : #{options[:port]}"
+    puts "  Auth         : #{options[:hash] ? 'NTLM Hash' : 'Password'}"
+
+    # ---------- Quick Flag Scan ----------
+    puts "\n" + "QUICK FLAG SCAN".center(70, '-')
+    begin
+      ps = <<~POWERSHELL
+        $flag_locations = @(
+          "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt",
+          "C:\\Users\\*\\Desktop\\flag.txt",
+          "C:\\Users\\*\\Documents\\flag.txt", 
+          "C:\\Users\\*\\Downloads\\flag.txt",
+          "C:\\Users\\*\\user.txt",
+          "C:\\Users\\*\\root.txt"
+        )
+        
+        foreach ($pattern in $flag_locations) {
+          if ($pattern -like "*\\*\\*") {
+            Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+              if ($content -and $content.Trim()) {
+                Write-Output "FLAGFOUND|||$($_.FullName)|||$content"
+              }
+            }
+          } else {
+            if (Test-Path $pattern) {
+              $content = Get-Content $pattern -Raw -ErrorAction SilentlyContinue
+              if ($content -and $content.Trim()) {
+                Write-Output "FLAGFOUND|||$pattern|||$content"
+              }
+            }
+          }
+        }
+      POWERSHELL
+
+      result = shell.run(ps)
+      flags_found = false
+      result.output.each_line do |line|
+        next unless line.include?("FLAGFOUND|||")
+        flags_found = true
+        path, value = line.strip.split("|||", 3)[1..2]
+        puts "  [!] FLAG: #{path}"
+        puts "      #{value.strip}"
+      end
+      puts "  [+] No flags found in common locations" unless flags_found
+    rescue => e
+      puts "  [ ] Flag scan error: #{e.message}"
+    end
+
+    puts "\n" + '=' * 70
+    puts "SESSION READY - Type 'help' for commands"
+    puts '=' * 70
+  end
+
+  def self.show_expanded_banner(shell, options)
     puts <<~BANNER
 
      █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
@@ -35,7 +159,7 @@ module EvilCTF::Banner
     BANNER
 
     puts "\n" + '=' * 70
-    puts 'AWINRM CTF SESSION'.center(70)
+    puts 'AWINRM CTF SESSION - EXPANDED MODE'.center(70)
     puts '=' * 70
 
     # Basic System Information
@@ -99,7 +223,7 @@ module EvilCTF::Banner
       end
     end
 
-    # Performance & Health - FIXED System Uptime command
+    # Performance & Health
     puts "\n" + "PERFORMANCE & HEALTH".center(70, '-')
     perf_cmds = {
       "System Uptime" => '((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).ToString("dd\\.hh\\:mm\\:ss")',
@@ -158,13 +282,11 @@ module EvilCTF::Banner
       puts "  [ ] MSSQL Detection Error: #{e.message}"
     end
 
-    # Enhanced Patch Information - Cleaned up version
+    # Enhanced Patch Information
     puts "\n" + "PATCH & VULNERABILITY STATUS".center(70, '-')
     begin
-      # Get all hotfixes for comprehensive checking
       all_hotfixes = shell.run("Get-HotFix | Select-Object HotFixID").output
       
-      # Focus on critical, well-known vulnerabilities with reliable KB detection
       critical_patches = {
         "MS17-010 (EternalBlue)" => ["KB4012212", "KB4012215", "KB4012216", "KB4012217", "KB4012218", "KB4012219", "KB4012220", "KB4012598", "KB4012606", "KB4013198", "KB4013389", "KB4013429"],
         "MS08-067 (Conficker)" => ["KB958644"],
@@ -178,7 +300,6 @@ module EvilCTF::Banner
         puts "  #{symbol} #{desc} - #{status}"
       end
       
-      # Get last patch info
       last_patch = shell.run('Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1 | Format-Table HotFixID,InstalledOn -AutoSize').output.strip
       patch_count = shell.run('(Get-HotFix | Measure-Object).Count').output.strip
       
@@ -192,12 +313,12 @@ module EvilCTF::Banner
       puts "  [ ] Patch info error: #{e.message}"
     end
 
-    # Security Hardening Checks
+    # Security Hardening Checks - FIXED VERSION
     puts "\n" + "SECURITY HARDENING CHECKS".center(70, '-')
     security_cmds = {
       'LSA Protection'          => '(Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa" -Name "RunAsPPL" -ErrorAction SilentlyContinue).RunAsPPL',
       'Credential Guard'        => '(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard -ErrorAction SilentlyContinue).SecurityServicesRunning',
-      'BitLocker Status'        => '(Manage-BDE -Status C: 2>$null | findstr "Conversion Status") -split ": " | Select-Object -Last 1',
+      'BitLocker Status'        => 'if (Get-Command Manage-BDE -ErrorAction SilentlyContinue) { (Manage-BDE -Status C: 2>$null | findstr "Conversion Status") -split ": " | Select-Object -Last 1 } else { "Not Available" }',
       'SMB Signing'             => '(Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "RequireSecuritySignature" -ErrorAction SilentlyContinue).RequireSecuritySignature',
       'Wdigest Enabled'         => 'Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest" -Name UseLogonCredential -ErrorAction SilentlyContinue',
       'LSASS Protection'        => '(Get-Process -Name lsass -ErrorAction SilentlyContinue).Protection'
@@ -207,6 +328,10 @@ module EvilCTF::Banner
       begin
         output = shell.run(cmd).output.strip
         output = "Not Enabled" if output.empty? || output == "N/A"
+        # Special handling for BitLocker
+        if label == 'BitLocker Status' && (output.include?("not recognized") || output.empty?)
+          output = "Not Available"
+        end
         puts "  #{label.ljust(30)} : #{output}"
       rescue => e
         puts "  #{label.ljust(30)} : Error: #{e.message}"
@@ -251,14 +376,14 @@ module EvilCTF::Banner
       end
     end
 
-    # NEW: RISK ASSESSMENT & AUTO-SUGGESTIONS
+    # Risk Assessment & Auto-Suggestions
     risk_data = assess_risk(shell)
     display_risk_assessment(risk_data)
     display_auto_suggestions(risk_data)
     display_attack_paths(risk_data)
     display_lateral_movement_opportunities(shell)
 
-    # NEW: BACKUP & SHADOW COPIES
+    # Backup & Shadow Copies
     puts "\n" + "BACKUP & SHADOW COPIES".center(70, '-')
     begin
       shadow_copies = shell.run('vssadmin list shadows 2>$null').output.strip
@@ -274,7 +399,7 @@ module EvilCTF::Banner
       puts "  [ ] Shadow Copy Check Failed: #{e.message}"
     end
 
-    # NEW: GROUP POLICY OVERVIEW
+    # Group Policy Overview
     puts "\n" + "GROUP POLICY SETTINGS".center(70, '-')
     begin
       gpo = shell.run('gpresult /Z | findstr /C:"Group Policy was applied" 2>$null').output.strip
@@ -288,7 +413,7 @@ module EvilCTF::Banner
       puts "  [ ] GPO Check Failed: #{e.message}"
     end
 
-    # NEW: TRUST RELATIONSHIPS (if domain joined)
+    # Trust Relationships (if domain joined)
     domain_check = shell.run('(Get-WmiObject Win32_ComputerSystem).PartOfDomain').output.strip
     if domain_check == "True"
       puts "\n" + "TRUST RELATIONSHIPS".center(70, '-')
@@ -307,7 +432,7 @@ module EvilCTF::Banner
       end
     end
 
-    # NEW: DEFAULT ACCOUNT CHECKS
+    # Default Account Checks
     puts "\n" + "DEFAULT ACCOUNT CHECKS".center(70, '-')
     begin
       default_accounts = {
@@ -328,12 +453,12 @@ module EvilCTF::Banner
       puts "  [ ] Default Account Check Failed: #{e.message}"
     end
 
-    # NEW: UNQUOTED SERVICE PATHS
+    # Unquoted Service Paths - FIXED VERSION
     puts "\n" + "UNQUOTED SERVICE PATHS".center(70, '-')
     begin
       services_ps = <<~POWERSHELL
-        Get-WmiObject -Class Win32_Service | Where-Object {
-          $_.PathName -notlike '"*' -and $_.PathName -like '*.exe*'
+        Get-CimInstance -Class Win32_Service | Where-Object { 
+          $_.PathName -notlike '`"*' -and $_.PathName -like '*.exe*' -and $_.PathName -like '* *'
         } | Select-Object Name, DisplayName, PathName, State | Format-Table -AutoSize
       POWERSHELL
       
@@ -341,7 +466,8 @@ module EvilCTF::Banner
       if services_output.lines.count > 3
         puts "  [!] Unquoted Service Paths Found:"
         services_output.lines[3..6].each do |line|
-          puts "      #{line.strip}" if line.strip.length > 0
+          cleaned_line = line.strip
+          puts "      #{cleaned_line}" if cleaned_line.length > 0
         end
         puts "      ... (run 'get-unquotedservices' for full list)"
       else
@@ -367,40 +493,71 @@ module EvilCTF::Banner
       puts "  #{label.ljust(30)} : #{eval(value)}"
     end
 
-    # ---------- Flag Scan ----------
-    puts "\n" + "FLAG SCAN".center(70, '-')
-    ps = <<~POWERSHELL
-      $users = Get-ChildItem C:\\Users -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
-      $paths = @()
-      foreach ($u in $users) {
-        $paths += "$($u.FullName)\\Desktop\\flag.txt"
-        $paths += "$($u.FullName)\\Documents\\flag.txt"
-        $paths += "$($u.FullName)\\Downloads\\flag.txt"
-        $paths += "$($u.FullName)\\user.txt"
-        $paths += "$($u.FullName)\\root.txt"
-      }
-      $paths += "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt", "C:\\Windows\\System32\\config\\flag.txt"
-      foreach ($f in $paths) {
-        if (Test-Path $f) {
-          $c = Get-Content $f -Raw -ErrorAction SilentlyContinue
-          if ($c) {
-            Write-Output "FLAGFOUND|||$f|||$c"
-          }
-        }
-      }
-    POWERSHELL
-
+    # ---------- Optimized Flag Scan ----------
+    puts "\n" + "OPTIMIZED FLAG SCAN".center(70, '-')
     begin
+      ps = <<~POWERSHELL
+        $found_flags = @{}
+        $search_locations = @(
+          "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt",
+          "C:\\Users\\*\\Desktop\\flag.txt",
+          "C:\\Users\\*\\Desktop\\user.txt", 
+          "C:\\Users\\*\\Desktop\\root.txt",
+          "C:\\Users\\*\\Documents\\flag.txt",
+          "C:\\Users\\*\\Downloads\\flag.txt"
+        )
+        
+        foreach ($location in $search_locations) {
+          try {
+            Get-ChildItem -Path $location -ErrorAction SilentlyContinue | ForEach-Object {
+              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+              if ($content -and $content.Trim() -and $content.Trim().Length -lt 500) {
+                if (-not $found_flags.ContainsKey($_.FullName)) {
+                  $found_flags[$_.FullName] = $content.Trim()
+                }
+              }
+            }
+          } catch { }
+        }
+        
+        # Quick recursive search in user directories (limited depth)
+        $user_dirs = @("Desktop", "Documents", "Downloads")
+        foreach ($user_dir in $user_dirs) {
+          try {
+            Get-ChildItem "C:\\Users\\*\\$user_dir\\*" -Include "flag*", "user.txt", "root.txt" -Recurse -Depth 1 -ErrorAction SilentlyContinue | ForEach-Object {
+              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+              if ($content -and $content.Trim() -and $content.Trim().Length -lt 500) {
+                if (-not $found_flags.ContainsKey($_.FullName)) {
+                  $found_flags[$_.FullName] = $content.Trim()
+                }
+              }
+            }
+          } catch { }
+        }
+        
+        $found_flags.GetEnumerator() | ForEach-Object {
+          Write-Output "FLAGFOUND|||$($_.Key)|||$($_.Value)"
+        }
+      POWERSHELL
+
       result = shell.run(ps)
       flags_found = false
+      unique_paths = Set.new
+      
       result.output.each_line do |line|
         next unless line.include?("FLAGFOUND|||")
         flags_found = true
         path, value = line.strip.split("|||", 3)[1..2]
-        puts "  [!] Found flag: #{path}"
-        puts "      #{value.strip}"
+        
+        # Only show each path once
+        unless unique_paths.include?(path)
+          unique_paths.add(path)
+          puts "  [!] Found: #{path}"
+          puts "      #{value.strip}" if value && value.strip.length > 0
+        end
       end
-      puts "  [+] No flags found in common locations" unless flags_found
+      
+      puts "  [+] No flags found in optimized search" unless flags_found
     rescue => e
       puts "  [ ] Flag scan failed: #{e.message}"
     end
