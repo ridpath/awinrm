@@ -94,7 +94,8 @@ options = {
   random_names: false, auto_evasion: false, beacon: false,
   webhook: nil, logfile: nil, proxy: nil, profile: nil,
   list_tools: false, enum: nil, fresh: false, hosts: nil,
-  kerberos: false, realm: nil, keytab: nil
+  kerberos: false, realm: nil, keytab: nil,
+  banner_mode: :minimal  # NEW: Default to minimal banner for CTF
 }
 
 OptionParser.new do |opts|
@@ -125,6 +126,7 @@ OptionParser.new do |opts|
   opts.on('-k', '--kerberos', 'Use Kerberos')                      { options[:kerberos] = true }
   opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
   opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }
+  opts.on('--banner MODE', 'Banner mode (minimal|expanded)')       { |v| options[:banner_mode] = v&.to_sym }  # NEW: Banner mode option
   opts.on('-h', '--help', 'Show help')                             { puts opts; exit }
 end.parse!
 
