@@ -461,30 +461,6 @@ module EvilCTF::Session
     end
     hosts
   end
-
-  # IPv6 handling (adds an entry to /etc/hosts)
-  def self.add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
-    hosts_file = '/etc/hosts'
-    entry = "#{ip} #{hostname}"
-    return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
-
-    puts "[*] Adding IPv6 entry to #{hosts_file}: #{entry}"
-    cmd = "echo '#{entry}' >> #{hosts_file}"
-
-    if Process.uid == 0
-      system(cmd)
-    else
-      system("sudo sh -c \"#{cmd}\"")
-    end
-
-    unless $?.success?
-      puts "[!] Failed to add entry to #{hosts_file}. Please add manually: sudo echo '#{entry}' >> #{hosts_file}"
-      exit 1
-    end
-
-    puts "[+] Entry added successfully"
-  end
-
   # ------------------------------------------------------------------
   # Profile loading helper
   # ------------------------------------------------------------------
