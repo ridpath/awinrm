@@ -624,23 +624,25 @@ module EvilCTF::Tools
   def self.find_tool_on_disk(tool_key)
     tool = TOOL_REGISTRY[tool_key]
     return nil unless tool
-   
+
     search_patterns = tool[:search_patterns] || [tool[:filename]]
-    search_paths = [
+    base_dirs = [
       ENV['HOME'],
-      "#{ENV['HOME']}/Downloads",
-      "#{ENV['HOME']}/Desktop",
-      "#{ENV['HOME']}/tools",
-      "#{ENV['HOME']}/bin",
+      File.join(ENV['HOME'], 'Downloads'),
+      File.join(ENV['HOME'], 'Desktop'),
+      File.join(ENV['HOME'], 'tools'),
+      File.join(ENV['HOME'], 'bin'),
       Dir.pwd,
       File.join(Dir.pwd, 'tools')
     ].compact.uniq
+
     search_patterns.each do |pattern|
-      search_paths.each do |base|
+      base_dirs.each do |base|
         next unless Dir.exist?(base)
-        dir_glob = File.join(base, '**', pattern)
-        found = Dir.glob(dir_glob).first
-        return found if found
+        # Use find with max depth 3
+        Dir.glob(File.join(base, '**', pattern), File::FNM_CASEFOLD).each do |path|
+          return path if File.file?(path)
+        end
       end
     end
     nil
