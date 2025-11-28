@@ -695,7 +695,7 @@ module EvilCTF::Tools
         ps_chunk = <<~PS
           try {
             $b = [Convert]::FromBase64String('#{chunk}')
-            Add-Content -Path '#{normalized_remote_path}' -Value $b -Encoding Byte
+            [IO.File]::WriteAllBytes('#{normalized_remote_path}', $bytes)
             "CHUNK #{idx}"
           } catch {
             "ERROR: $($_.Exception.Message)"
