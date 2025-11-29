@@ -7,6 +7,8 @@ require_relative 'enums'
 require_relative 'sql_enum'
 require 'readline'
 require 'timeout'
+require 'evil_ctf/uploader'
+
 
 module EvilCTF::Session
   # Alias for the uploader helper
