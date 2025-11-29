@@ -4,6 +4,8 @@
 require 'base64'
 require 'fileutils'
 require 'digest'
+require 'evil_ctf/crypto'
+
 
 module EvilCTF::Uploader
   DEBUG = ENV['EVC_DEBUG'] == 'true'
