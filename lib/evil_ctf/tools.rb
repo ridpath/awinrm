@@ -12,6 +12,8 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/crypto'
+require 'evil_ctf/uploader'
+
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
