@@ -1,13 +1,36 @@
-# AWINRM
-### Advanced WinRM Shell for CTFs, Red Teams, & Offensive Research
+<!--
+AWINRM, WinRM hacking, Evil-WinRM alternative, Windows remote management exploitation,
+Active Directory post-exploitation automation, AMSI bypass tool, ETW bypass winrm,
+Lateral movement over WinRM, payload staging automation Windows, SOCKS proxy pivoting,
+CTF Active Directory exploitation, credential extraction Windows pentest,
+Privilege escalation Windows red team, advanced WinRM shell Ruby,
+WinRM file uploader large objects, IPv6 lateral movement pentest,
+Kerberos attacks, NTLM hash pass, BloodHound automation, Mimikatz staging winrm,
+Defender evasion Windows Server 2019 and 2022, operational security automation,
+Adversary emulation framework, offensive security research and education only,
+Authorized penetration testing tooling, HackTheBox pro labs winrm use case
+-->
 
-AWINRM is an operator‑focused WinRM framework under active development.  
+# AWINRM  
+Advanced WinRM Shell for CTFs, Red Teams, and Offensive Research
+AWINRM is an operator focused WinRM framework under active development.
 Features, macros, and internal behavior may evolve as the tool matures.
 
-> 🚧 **ALPHA NOTICE**: AWINRM is under **active development**. Expect breaking changes, experimental syntax, and rapid iteration. Not yet production safe. Ideal for red team labs, research, or prototyping offensive techniques.
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange)
+![stability: experimental](https://img.shields.io/badge/stability-experimental-red)
+![license: MIT](https://img.shields.io/badge/license-MIT-blue)
+![tech: WinRM](https://img.shields.io/badge/tech-WinRM-darkgreen)
+![ruby version](https://img.shields.io/badge/Ruby-3.0+%20required-CC342D)
+![platform support](https://img.shields.io/badge/Windows%20Target-Win10%2F11%20%7C%20Server%202016--2022-important)
+![protocol: winrm](https://img.shields.io/badge/Protocol-WinRM%20(HTTPS%20Preferred)-informational)
+![mitre mapped](https://img.shields.io/badge/MITRE%20ATT&CK-Mapped%20Techniques-blueviolet)
+![osint safe](https://img.shields.io/badge/OPSEC-Stage%20in%20memory%20(no%20disk)-lightgrey)
+![artifact control](https://img.shields.io/badge/Loot-Auto%20extraction%20enabled-green)
+![ctf optimized](https://img.shields.io/badge/Mode-CTF%20Optimized-brightgreen)
 
 
+> Alpha release — experimental automation modules.  
+> Use only where you have **explicit written authorization**.
 
 ```
  █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
@@ -19,195 +42,136 @@ Features, macros, and internal behavior may evolve as the tool matures.
 
                    AWINRM OPERATOR SHELL
 ```
+---
+
+## Background and Purpose
+
+AWINRM was built from real operator struggles inside enterprise Active Directory environments.  
+While traditional WinRM tooling works, real redteam operations face friction:
+
+- Broken or slow uploads for large binaries  
+- In memory execution blocked by AMSI/ETW  
+- Instability around PowerShell language modes  
+- Weak automation for enumeration and credential gathering  
+- IPv6 lateral movement poorly supported  
+- Repetitive staging steps harming OPSEC  
+
+AWINRM directly addresses these issues through its operator centric workflow system, staging subsystem, and built-in bypass modules.
+
+Designed for:
+
+- CTF challenge assault paths (Kerberoast → lateral movement → LSASS access)
+- HTB Pro Labs enterprise engagements
+- High fidelity red-team simulations
 
 ---
 
+## Key Features Summary
+
+- Automated AMSI bypass and ETW disruption  
+- Reliable file staging for large binaries  
+- Architecture-aware tooling (x86/x64)
+- Command macros for AD recon and exploitation  
+- SOCKS proxy tunneling for pivot operations  
+- Auto-loot heuristics for credentials, flags, tokens  
+- Optional banner-based situational awareness  
+- Stealth upload mode with ADS storage support  
+- Built-in IPv6 probing and fallback support  
+- Workflow persistence and command history logging  
+
+Output is stored locally in the **loot/** directory for offline analysis.
 
 ---
 
-## Background & Project Origin
+## Banner System
 
-AWINRM began as an effort to address consistent operational challenges encountered during Active Directory exploitation and red‑team training scenarios, particularly throughout HackTheBox Pro Labs such as **P.O.O.**, **RastaLabs**, **Zephyr**, **Dante** and similar AD enterprise environments.
+AWINRM features two situational awareness modes:
 
-Recurring pain points included:
+Minimal banner (default):  
+• Fast execution in CTF environments  
+• Summarizes privileges, EDR state, local flags  
 
-* Unreliable tool staging  
-* WinRM upload failures on large binaries  
-* Lack of IPv6 handling  
-* AMSI & ETW blocking essential operator tooling  
-* Repetitive steps for recon and credential collection  
-* Inconsistent PowerShell behavior across systems  
-* Limited automation for enumeration and stealth workflows  
+Expand banner mode:  
+Provides high depth assessment including:
 
-AWINRM was designed to solve these practical issues using real‑world operator workflows as the foundation. Over time, the project evolved into a feature‑rich WinRM shell with its own architecture, tooling subsystem, bypass modules, and workflow automation.
-
----
-
-## Key Features
-
-### Banner System (Minimal & Expanded Modes)
-
-AWINRM now features two banner modes:
-
-Minimal (default):
-Optimized for CTFs. Displays a fast summary of core recon data, privileges, AV/EDR state, and performs a quick flag scan.
-
-Expanded (--banner expanded):
-Shows advanced recon including MSSQL information, patch state, risk scores, and live attack suggestions.
+- Live SQL/MSSQL instance detection  
+- Kerberos misconfiguration checks  
+- Patch state indicators  
+- Lateral movement suggestions  
+- Trust relationship scan summary  
+- Privilege escalation scoring  
 
 Run expanded banner like this:
-```
+```bash
 
 ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Passw0rd! --banner expanded
 ```
+Operators receive active decision guidance for next-step exploitation.
 
+---
 
-Both modes gather extensive intelligence automatically:
+## AMSI and ETW Bypass Automation
 
-Hostname, domain, and logged-in user
+AWINRM provides automated in memory defenses against common blue-team controls:
 
-Architecture and OS version
+- AMSI bypass using runtime patching
+- ETW neutralization against script tracing
+- Avoids touching disk or modifying registry
+- Supports fallback manual execution
+- Updated for modern Windows 10 / Windows Server builds
 
-PowerShell language mode
+Execution can be toggled or invoked by operator preference.
 
-AV & Defender status
+---
 
-SeDebug / SeImpersonate privilege detection
+## Tool Auto Staging System
 
-UAC level and integrity context
+Automatically deploys common offensive tools for credential harvesting, domain enumeration, and privilege escalation.
 
-IPv6 support and current sessions
+Supported tool families:
 
-Transport type, port, and SSL usage
-
-Credential type (hash/password)
-
-Random name generation / stealth mode / webhook status
-
-Loot summary (total files + JSONs)
-
-PowerShell version
-
-System uptime, CPU & RAM usage
-
-Expanded Banner also includes:
-
-MSSQL detection with:
-
-SQL version
-
-Current SQL user
-
-Available databases
-
-Linked servers
-
-Patch status checks:
-
-MS17-010 (EternalBlue)
-
-MS14-068 (Kerberos)
-
-MS08-067 (NetAPI)
-
-Security & risk scoring:
-
-Auto-evaluates privilege level
-
-Explains possible attack paths
-
-Suggests recon or exploitation actions
-
-Evaluates LSASS access, UAC bypass, lateral movement
-
-Trust relationships:
-
-Domain trust info
-
-Shadow copies and GPO discovery
-
-### AMSI & ETW Bypass Automation
-- In‑memory AMSI patching  
-- ETW provider neutralization  
-- Automatic or manual invocation  
-- Updated for modern Windows 10/11 and Server environments
-
-### Tool Auto‑Staging Framework
-Automates fetching, staging, and extracting common operator tools:
-- SharpHound (BloodHound Collector)  
+- SharpHound  
 - Rubeus  
-- PowerView  
+- PowerView / PowerSploit modules  
 - Mimikatz  
 - WinPEAS  
 - Seatbelt  
 - Inveigh  
-- ProcDump (arch‑aware)  
-- Nishang modules  
-- Plink  
-- SOCKS/port‑forwarding utilities  
+- ProcDump  
+- SSH / tunneling helpers  
+- Nishang scripts  
 
-Capabilities:
-- ZIP extraction  
-- Architecture detection  
-- Randomized filenames  
-- ADS (Alternate Data Stream) staging for stealth
+Features:
 
-## SOCKS Proxy Support
-```
---socks 127.0.0.1:1080
-```
+- Architecture aware staging
+- Chunked or XOR-encoded uploads
+- Alternate Data Stream support
+- Randomized filenames for OPSEC
+- Tool registry with version mapping
 
+Artifacts stored in:
 
-### Enhanced File Operations
-- Chunked Base64 uploads for large binaries  
-- Reliable downloads  
-- Optional XOR encoding  
-- Remote ZIP extraction  
-- Multi‑step file validation  
-
-### Automated Loot Extraction
-Detects common output patterns:
-- CTF style flags  
-- credentials  
-- NTLM/LM hashes  
-- JWTs  
-- tokens  
-- passwords  
-- email/password pairs  
-- base64 blobs  
-- Kerberos artifacts  
-- SSH/private key material  
-
-Artifacts saved to:
-```
-loot/loot.txt
-loot/creds.json
-```
-
-Optional webhook support is available.
-
-### Recon and Attack Macros
-Predefined operator workflows:
-- Kerberoasting  
-- PowerView domain enumeration  
-- LSASS dumping  
-- Credential harvesting  
-- Inveigh  
-- Nishang scans  
-- SOCKS proxy initialization  
-- SharpHound collection  
- 
-
-### Operator & Workflow Enhancements
-- automatic flag/user/root detection  
-- IPv6 alias handling  
-- session logging  
-- persistent history  
-- local shell escapes (`!bash`)  
-- multi‑host execution workflows  
+loot/creds.json  
+loot/loot.txt  
 
 ---
 
+## Reconnaissance and Attack Macros
+
+Streamlined workflows to accelerate exploitation:
+
+- Kerberoasting automation
+- Domain recon bundles
+- Credential and token dumping
+- LSASS extraction and secure download
+- SharpHound collection
+- SOCKS tunneling initialization
+- Local and domain privilege assessment
+- Automated discovery of lateral access paths
+
+Designed for both rapid CTF wins and full domain takeover scenarios.
+
+---
 ## Installation
 
 AWINRM requires **Ruby 3.0+** and **Bundler**.
@@ -237,85 +201,93 @@ gem 'bundler', '~> 2.4.0'
 Ruby’s standard library covers the remaining imports (optparse, ipaddr, socket, fileutils, etc.).
 
 ---
+## Usage Guide
 
-# Usage Examples
-
-## Basic authentication
-```
+Basic authentication:  
+```bash
 ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Welcome1!
 ```
-
-## Pass-the-Hash
+Pass-the-Hash:  
+```bash
+ruby evil-ctf.rb -i HOST -u USER -H NTLM_HASH)
 ```
-ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -H <NTLM_HASH>
+TLS encrypted transport:  
+```bash
+ruby evil-ctf.rb -i HOST --ssl -u USER -p PASS)
 ```
-
-## HTTPS transport
+SOCKS proxy pivot:  
+```bash
+ruby evil-ctf.rb -i HOST --socks 127.0.0.1:1080 -u USER -p PASS)
 ```
-ruby bin/evil-ctf.rb -i host.local --ssl -u user -p pass
-```
-
-## SOCKS proxy pivot
-```
-ruby bin/evil-ctf.rb -i 192.168.5.20 --socks 127.0.0.1:1080 -u svc -p Winter2025
-```
-
-## Stage all tools
-```
+Execute staging macro:  
+```bash
 tool all
 ```
-
-## Dump credentials
-```
+Dump credentials:  
+```bash
 dump_creds
 ```
-
-## Dump LSASS
-```
-lsass_dump
-```
-
-## Domain recon
-```
+Domain reconnaissance:  
+```bash
 dom_enum
 ```
+Operators can chain execution across multiple remote hosts for campaign automation.
 
 ---
 
-# Project Structure
+## Project Structure
 
-```
-AWINRM/
- ├── bin/evil-ctf.rb          # CLI entry point
- ├── lib/evil_ctf              # Core modules
- │   ├── banner.rb            # Banner & system info
- │   ├── enums.rb             # Enumeration presets
- │   ├── session.rb           # Session loop & command handling
- │   ├── shell_wrapper.rb     # WinRM connection helpers
- │   ├── tools.rb             # Tool registry & macros
- │   └── uploader.rb          # File upload/download utilities
- ├── loot/                    # Collected artifacts
- ├── profiles/                # YAML configuration profiles
- ├── README.md                 # This document
- └── LICENSE
-```
+AWINRM  
+bin/evil-ctf.rb          CLI entry point  
+lib/evil_ctf/banner.rb   Banner and recon information  
+lib/evil_ctf/enums.rb    Enumeration systems  
+lib/evil_ctf/session.rb  Interactive shell and workflow engine  
+lib/evil_ctf/tools.rb    Tool registry and auto staging rules  
+lib/evil_ctf/uploader.rb File transfer implementation  
+loot/                    Local credential and artifact storage  
+profiles/                YAML configuration for stealth workflows  
+README.md                Framework documentation  
+LICENSE                  Legal terms  
 
 ---
 
-# Legal and Ethical Notice
+## MITRE ATT&CK Mapping
 
-AWINRM is intended for:
-
-- authorized penetration testing  
-- red-team operations  
-- defensive research  
-- CTF and training environments  
-
-Unauthorized use on systems without permission is illegal.  
-AWINRM is provided without warranty, and the authors assume no liability for misuse.
+| Tactic | Technique | ID | Purpose in AWINRM |
+|--------|-----------|----|-----------------|
+| Execution | PowerShell | T1059.001 | Remote in memory command execution |
+| Execution | In-Memory Execution | T1620 | Run payloads without touching disk |
+| Lateral Movement | WinRM | T1021.006 | Movement across Active Directory hosts |
+| Credential Access | Credential Dumping | T1003 | Extract stored secrets for escalation |
+| Credential Access | LSASS Memory Dumping | T1003.001 | Token/credential recovery from LSASS |
+| Credential Access | Pass-the-Hash | T1550.002 | Authenticate without cleartext passwords |
+| Credential Access | Kerberoasting | T1558.003 | Harvest TGS tickets for offline cracking |
+| Discovery | Account Discovery | T1087 | Identify exploitable users and roles |
+| Discovery | Network/Host Discovery | T1016 | Identify lateral access opportunities |
+| Command and Control | Application Protocol: HTTPS | T1071.001 | Covert, encrypted operator traffic |
+| Defense Evasion | AMSI Bypass | T1562.001 | Block script scanning and signature checks |
+| Defense Evasion | ETW Disable | T1562.002 | Prevent telemetry capture/analysis |
 
 ---
 
+## Contribution Policy
+
+Enhancements are welcome on:
+  
+- stealth workflow automation  
+- advanced credential extraction techniques  
+- stability enhancements
+- tools to be autostaged 
+
+All pull requests must include full documentation and test coverage.
+
+---
+
+<!--
+AWINRM Hidden SEO Footer Block  
+Keywords: AWINRM, Advanced WinRM Shell, WinRM post-exploitation, Active Directory exploitation, credential dumping automation, Kerberoasting toolkit, Ruby WinRM client, LSASS dumping, red team operations tool, Windows lateral movement automation, bypass AMSI ETW, HackTheBox Pro Labs tools, stealth file staging, SOCKS pivot Windows, offensive security automation, domain privilege escalation research  
+This comment is intentionally hidden from README rendering.
+-->
 ## Acknowledgements
 
 AWINRM draws initial inspiration from the WinRM interface established by  
@@ -330,10 +302,59 @@ Credit is due to:
 - GhostPack maintainers  
 - PowerShellMafia (PowerView/PowerSploit)  
 - Inveigh and Nishang maintainers  
-- Sysinternals (ProcDump)  
+- Sysinternals (ProcDump)
 
 ---
+## Legal and Ethical Notice
 
-# Contributions
-Development will continue with new automation, tooling integrations, and operational improvements.
+AWINRM is provided strictly for:
+
+- authorized penetration testing  
+- approved red-team missions  
+- CTF participation  
+- security improvement research  
+
+Unauthorized deployment on systems without explicit permission is illegal.
+
+All responsibility for ethical and lawful use lies solely with the operator.
+
+
+<!--
+AWINRM Offensive Security Framework SEO Footer
+Do not remove - Invisible Ranking Enhancer
+
+Primary Keywords:
+AWINRM, WinRM post exploitation framework, Advanced WinRM shell,
+Windows Remote Management command shell, Evil-WinRM alternative,
+Active Directory exploitation toolkit, AD lateral movement automation,
+Windows credential dumping automation, Kerberoasting automation,
+Pass-the-hash tooling Ruby, LSASS extraction pentest tool,
+PowerShell AMSI bypass, ETW event tracing bypass,
+HTB WinRM exploitation, CTF red team automation,
+Operational security stealth uploads, file staging Windows,
+IPv6 lateral movement tool, SOCKS pivot Windows,
+OpSec safe Windows pentesting tool, enterprise red teaming operations,
+Unauthorized use prohibited, security research and ethical hacking only
+
+Secondary Keywords:
+BloodHound automation WinRM, token extraction Windows, payload delivery Windows,
+Rubeus auto staging, Mimikatz automation tool, Inveigh tooling WinRM,
+PowerView enumeration automation, SeImpersonate privilege escalation,
+Windows Server 2016 2019 2022 exploitation tools,
+Blue team evasion, adversary emulation tooling, Ruby offensive tooling
+
+Search Intent Targeting:
+active directory shell tool
+how to bypass AMSI WinRM
+WinRM upload large files fails solution
+pass the hash winrm ruby
+ETW bypass powershell invoke
+AD lateral movement winrm tools
+CTF HackTheBox winrm vulnerable machines
+HTB RastaLabs winrm post exploitation automation
+
+Legal:
+Educational use only, cyber ranges, explicit authorization required,
+Operator assumes all legal and ethical responsibility.
+-->
 
