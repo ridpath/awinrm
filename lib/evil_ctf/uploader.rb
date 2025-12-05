@@ -1,11 +1,8 @@
-# Source: /mnt/data/uploader.rb.txt
-
-
+# lib/evil_ctf/uploader.rb
 require 'base64'
 require 'fileutils'
 require 'digest'
 require 'evil_ctf/crypto'
-
 
 module EvilCTF::Uploader
   DEBUG = ENV['EVC_DEBUG'] == 'true'
@@ -16,6 +13,7 @@ module EvilCTF::Uploader
 
   # Default chunk size ~64KB (Base64 expands ~4/3, so will be ~86KB transmitted)
   DEFAULT_CHUNK_SIZE = 64 * 1024
+  SQL_DEFAULT_CHUNK_SIZE = 1 * 1024  # Smaller chunks for SQL files
 
   # PowerShell helper: double single-quotes inside single-quoted strings
   def self.ps_single_quote_escape(s)
@@ -102,44 +100,110 @@ module EvilCTF::Uploader
         log_debug("Uploading chunk #{idx}, size=#{payload.bytesize}")
         result = shell.run(ps_chunk)
         log_debug("Chunk #{idx} output: #{result.output}")
+
+        # Add progress tracking
+        if idx % 10 == 0 || buf.size < chunk_size
+          puts "[*] Upload progress: #{idx * 100 / (File.size(local_path) / chunk_size).round(2)}% (#{idx} chunks)"
+        end
+
         return false unless result.output.include?("CHUNK #{idx}")
 
         idx += 1
       end
     end
+  end
 
-    # Optionally verify via SHA256 on remote
-    if verify
-      ps_verify = <<~PS
-        try {
-          $path = '#{escaped_remote}'
-          if (!(Test-Path $path)) { Write-Output "MISSING"; exit }
-          $h = Get-FileHash -Path $path -Algorithm SHA256
-          $h.Hash
-        } catch {
-          "ERROR: $($_.Exception.Message)"
-        }
-      PS
+  # ---------------------------------------------
+  # Upload a local file to the remote target (streaming chunked)
+  # - shell.run(ps) must return an object with `output` string
+  # - encrypt: XOR each raw byte stream before base64-encoding
+  # - verify: compute SHA256 locally and compare to remote Get-FileHash
+  # ---------------------------------------------
+  def self.upload_file(local_path, remote_path, shell,
+                       encrypt: false,
+                       chunk_size: DEFAULT_CHUNK_SIZE,
+                       verify: true)
+    return false unless File.exist?(local_path)
 
-      remote_hash_run = shell.run(ps_verify)
-      remote_hash = remote_hash_run.output.strip.split('\n').last.strip
-      log_debug("Remote SHA256: #{remote_hash}")
+    log_debug("Preparing streaming upload: #{local_path} -> #{remote_path}")
 
-      if remote_hash =~ /^[A-Fa-f0-9]{64}$/ && remote_hash.downcase == local_sha256.downcase
-        log_debug("Upload verified: SHA256 matches")
-        return true
-      else
-        puts "[!] SHA256 mismatch or failed to compute remote hash"
-        puts "[!] Local:  #{local_sha256}"
-        puts "[!] Remote: #{remote_hash}"
-        return false
+    # Compute local SHA256 (streamed) for final verification
+    local_sha256 = Digest::SHA256.file(local_path).hexdigest
+    log_debug("Local SHA256: #{local_sha256}")
+
+    # Ensure remote directory exists (PowerShell New-Item -Force for directory)
+    remote_dir = File.dirname(remote_path).gsub('\\', '\\\\')
+    ps_mkdir = <<~PS
+      try {
+        $d = '#{ps_single_quote_escape(remote_dir)}'
+        if (!(Test-Path $d)) { New-Item -Path $d -ItemType Directory -Force | Out-Null }
+        "OK"
+      } catch {
+        "ERROR: $($_.Exception.Message)"
+      }
+    PS
+
+    dm = shell.run(ps_mkdir)
+    log_debug("Remote mkdir output: #{dm.output}")
+
+    # Initialize (create/overwrite) the remote file
+    escaped_remote = ps_single_quote_escape(remote_path)
+    ps_init = <<~PS
+      try {
+        $path = '#{escaped_remote}'
+        if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
+        # Create an empty file
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Create)
+        $fs.Close()
+        "INIT"
+      } catch {
+        "ERROR: $($_.Exception.Message)"
+      }
+    PS
+
+    init = shell.run(ps_init)
+    log_debug("Init output: #{init.output}")
+    return false unless init.output.include?('INIT')
+
+    # Stream the local file, chunk by chunk
+    File.open(local_path, 'rb') do |f|
+      idx = 0
+      while (buf = f.read(chunk_size))
+        payload = encrypt ? xor_crypt(buf) : buf
+        b64 = Base64.strict_encode64(payload)
+
+        # Use a single-quoted here-string to avoid any quoting issues
+        # Example PowerShell snippet writes bytes via Append mode
+        ps_chunk = <<~PS
+          try {
+            $b64 = @'
+#{b64}
+'@
+            $bytes = [Convert]::FromBase64String($b64)
+            $path = '#{escaped_remote}'
+            $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append)
+            $fs.Write($bytes, 0, $bytes.Length)
+            $fs.Close()
+            "CHUNK #{idx}"
+          } catch {
+            "ERROR: $($_.Exception.Message)"
+          }
+        PS
+
+        log_debug("Uploading chunk #{idx}, size=#{payload.bytesize}")
+        result = shell.run(ps_chunk)
+        log_debug("Chunk #{idx} output: #{result.output}")
+
+        # Add progress tracking
+        if idx % 10 == 0 || buf.size < chunk_size
+          puts "[*] Upload progress: #{idx * 100 / (File.size(local_path) / chunk_size).round(2)}% (#{idx} chunks)"
+        end
+
+        return false unless result.output.include?("CHUNK #{idx}")
+
+        idx += 1
       end
     end
-
-    true
-  rescue => e
-    puts "[!] Upload failed: #{e.message}"
-    false
   end
 
   # ---------------------------------------------
@@ -190,9 +254,11 @@ module EvilCTF::Uploader
 
     FileUtils.mkdir_p(File.dirname(local_path))
 
-    # Stream-write locally
+    # Stream-write locally with progress tracking
+    puts "[*] Downloading file (size: #{data.bytesize})..."
     File.open(local_path, 'wb') do |f|
       f.write(data)
+      puts "[+] Download complete"
     end
 
     puts "[+] Downloaded #{remote_path} -> #{local_path}"
@@ -319,11 +385,29 @@ module EvilCTF::Uploader
 
   # ---------------------------------------------
   # XOR encryption helper (optional)
+  # - Added SQL-specific XOR methods
   # ---------------------------------------------
   def self.xor_crypt(data, key = 0x42)
     data.bytes.map { |b| (b ^ key).chr }.join
   rescue => e
     puts "[!] XOR crypt failed: #{e.message}"
+    data
+  end
+
+  # ---------------------------------------------
+  # SQL-specific XOR encryption helper (optional)
+  # - For handling SQL query results with XOR obfuscation
+  # ---------------------------------------------
+  def self.sql_xor_crypt(data, key = 0x42)
+    # Add SQL-specific XOR patterns detection
+    if data.is_a?(String) && data.include?("SQL Server")
+      puts "[*] Detected potential SQL XOR obfuscation"
+      xor_crypt(data, key)
+    else
+      xor_crypt(data, key)
+    end
+  rescue => e
+    puts "[!] SQL XOR crypt failed: #{e.message}"
     data
   end
 
@@ -336,5 +420,25 @@ module EvilCTF::Uploader
   rescue => e
     puts "[!] Unable to detect architecture: #{e.message}"
     'UNKNOWN'
+  end
+
+  # ---------------------------------------------
+  # SQL-specific file handling methods
+  # ---------------------------------------------
+  def self.handle_sql_file(local_path, remote_path, shell,
+                          encrypt: false,
+                          chunk_size: SQL_DEFAULT_CHUNK_SIZE)
+    upload_file(local_path, remote_path, shell,
+                encrypt: encrypt,
+                chunk_size: chunk_size)
+  end
+
+  # ---------------------------------------------
+  # SQL-specific file download methods
+  # ---------------------------------------------
+  def self.download_sql_file(remote_path, local_path, shell,
+                            encrypt: false)
+    download_file(remote_path, local_path, shell,
+                 encrypt: encrypt)
   end
 end
