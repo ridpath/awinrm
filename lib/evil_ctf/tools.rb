@@ -439,6 +439,9 @@ module EvilCTF::Tools
       'unknown'
     end
   get_system_architecture(shell)
+  rescue => e
+    puts "[!] Unable to detect architecture: #{e.message}"
+    'UNKNOWN'
   end
 
   def self.upload_file(local_path, remote_path, shell, encrypt: false, chunk_size: 40000)
