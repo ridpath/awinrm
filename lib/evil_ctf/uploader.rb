@@ -76,7 +76,8 @@ module EvilCTF::Uploader
     File.open(local_path, 'rb') do |f|
       idx = 0
       while (buf = f.read(chunk_size))
-        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf) : buf
+        key = options[:xor_key] || EvilCTF::Crypto::DEFAULT_KEY                                                                                                                                                                
+        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf, key) : buf
         b64 = Base64.strict_encode64(payload)
 
         # Use a single-quoted here-string to avoid any quoting issues
