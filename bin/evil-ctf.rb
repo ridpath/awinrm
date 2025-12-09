@@ -25,11 +25,12 @@ require 'tmpdir'
 require 'concurrent'
 require 'set'
 
-$evil_ctf_should_exit = false
 Signal.trap('INT') do
   puts "\n[!] Ctrl-C detected, exiting cleanly..."
   $evil_ctf_should_exit = true
+  # optionally: shell.close if defined?(shell) && shell
 end
+
 
 # Root namespace
 module EvilCTF; end
