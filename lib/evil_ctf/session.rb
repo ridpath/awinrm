@@ -115,8 +115,9 @@ module EvilCTF::Session
             next if input.empty?
 
             if input =~ /^(exit|quit|__exit__)$/i
-              puts '[*] Exiting session...'
-              break
+              # Set exit flag and skip remainder of iteration
+              should_exit = true
+              next
             end
 
             history.add(input)
@@ -379,22 +380,23 @@ module EvilCTF::Session
           end
         rescue Timeout::Error
           puts "\n[!] Idle timeout — closing session"
-          break
+          should_exit = true
         rescue Interrupt
           puts "\n[!] Ctrl-C detected; exiting."
-          break
+          should_exit = true
         rescue => e
           # Handle connection errors gracefully
           if e.is_a?(WinRM::WinRMAuthorizationError) || e.is_a?(Net::HTTPServerException)
             puts "[!] WARNING - Connection lost: #{e.message}"
             puts "  This may indicate: session timeout, network issues, or firewall changes"
-            break
+            should_exit = true
           elsif e.is_a?(WinRM::WinRMEndpointError)
             puts "[!] WARNING - Connection failed: #{e.message}"
             puts "  This may indicate WinRM service not running or firewall blocking access"
           elsif e.is_a?(WinRM::WinRMAuthenticationError)
             puts "[!] WARNING - Authentication failed: #{e.message}"
             puts "  Check credentials or Kerberos configuration"
+            should_exit = true
           elsif e.is_a?(WinRM::WinRMTransportError)
             puts "[!] WARNING - Transport error: #{e.message}"
             puts "  Possible SSL/TLS or proxy issues"
@@ -408,12 +410,19 @@ module EvilCTF::Session
             sleep(5)
             session_options[:reconnect_attempts] -= 1
             retry
-          else
-            break
           end
         end
+
+        # Honor global exit flag from main (Signal.trap)
+        if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
+          should_exit = true
+        end
+
+        break if should_exit   # ensure outer loop exits
       end
 
+      # Single exit path and single close
+      EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
       shell.close if shell
     rescue => e
       # Enhanced error handling for connection creation failures
@@ -453,7 +462,6 @@ module EvilCTF::Session
     # Stubbed for safety — implement if you need to manipulate /etc/hosts
     # e.g., ensure bracketed IPv6 formatting or friendly name mapping
     # No-op by default to avoid side effects in Kali VMs
-    # puts "[*] IPv6 detected: #{ip} (no hosts modifications performed)"
   end
 
   def self.setup_autocomplete(history)
