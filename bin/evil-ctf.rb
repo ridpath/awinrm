@@ -25,10 +25,11 @@ require 'tmpdir'
 require 'concurrent'
 require 'set'
 
-Signal.trap('INT') { puts "\n[!] Ctrl-C detected, exiting cleanly..."; exit }
-
-# Compatibility shim – define Fixnum for Ruby 3.x
-#class Fixnum < Integer; end unless defined?(Fixnum)
+$evil_ctf_should_exit = false
+Signal.trap('INT') do
+  puts "\n[!] Ctrl-C detected, exiting cleanly..."
+  $evil_ctf_should_exit = true
+end
 
 # Root namespace
 module EvilCTF; end
@@ -194,7 +195,6 @@ unless options[:password] || options[:hash] || options[:kerberos]
 end
 
 add_ipv6_to_hosts(options[:ip].split('%').first, 'ipv6addr') if options[:ip].include?(':')
-
 # ---------------- Session Start ----------------
-EvilCTF::Session.run_session(options)
-puts '[+] Session closed. Loot saved under ./loot/'
+ok = EvilCTF::Session.run_session(options)
+puts '[+] Session closed. Loot saved under ./loot/' if ok
