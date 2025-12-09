@@ -1,3 +1,4 @@
+# lib/evil_ctf/shell_wrapper.rb
 require 'winrm'
 require 'ipaddr'
 
@@ -10,12 +11,12 @@ module EvilCTF
       begin
         host, port = proxy.split(':')
         TCPSocket.socks_server = host
-        TCPSocket.socks_port   = port.to_i if port && Integer(port) rescue false
+        TCPSocket.socks_port = port.to_i if port && Integer(port) rescue false
 
         puts "[*] SOCKS proxy configured: #{host}:#{port}"
       rescue => e
         puts "[!] WARNING - Failed to configure SOCKS proxy: #{e.message}"
-        puts "  This may affect all subsequent connection attempts"
+        puts " This may affect all subsequent connection attempts"
       end
     end
 
@@ -24,7 +25,7 @@ module EvilCTF
       conn = if hash
         WinRM::Connection.new(
           endpoint: endpoint,
-          user:     user,
+          user: user,
           password: '',
           transport: :negotiate,
           no_ssl_peer_verification: true,
@@ -33,7 +34,7 @@ module EvilCTF
       else
         WinRM::Connection.new(
           endpoint: endpoint,
-          user:     user,
+          user: user,
           password: pass,
           no_ssl_peer_verification: true,
           debug: false
@@ -50,51 +51,51 @@ module EvilCTF
           puts "[+] Connection test successful - #{endpoint} is accessible"
         else
           puts "[!] WARNING - Connection test failed for #{endpoint}"
-          puts "  Empty response received. This could indicate:"
-          puts "    - Firewall blocking access"
-          puts "    - WinRM service not properly configured"
-          puts "    - Network connectivity issues"
+          puts " Empty response received. This could indicate:"
+          puts " - Firewall blocking access"
+          puts " - WinRM service not properly configured"
+          puts " - Network connectivity issues"
         end
 
         success
       rescue WinRM::WinRMEndpointError => e
         if e.message.include?('5985') || e.message.include?('5986')
           puts "[!] WARNING - Connection failed for #{endpoint}"
-          puts "  Port #{e.message.split(':').last} (WinRM default) is not open"
-          puts "  Check if WinRM service is running and ports are accessible"
+          puts " Port #{e.message.split(':').last} (WinRM default) is not open"
+          puts " Check if WinRM service is running and ports are accessible"
         else
           puts "[!] WARNING - Connection test failed: #{e.message}"
-          puts "  This may indicate network connectivity issues or incorrect endpoint configuration"
+          puts " This may indicate network connectivity issues or incorrect endpoint configuration"
         end
         false
       rescue WinRM::WinRMAuthenticationError => e
         if user && pass
           puts "[!] WARNING - Authentication failed for #{user}@#{endpoint}"
-          puts "  Invalid credentials provided. Try different username/password combinations"
+          puts " Invalid credentials provided. Try different username/password combinations"
         else
           puts "[!] WARNING - Connection test failed with hash-based auth"
-          puts "  Possible issues with the hash or Kerberos configuration"
+          puts " Possible issues with the hash or Kerberos configuration"
         end
         false
       rescue WinRM::WinRMTransportError => e
         if ssl && e.message.include?('SSL')
           puts "[!] WARNING - SSL connection failed for #{endpoint}"
-          puts "  Check certificate validity and network connectivity"
-          puts "  Try without SSL or with different certificate settings"
+          puts " Check certificate validity and network connectivity"
+          puts " Try without SSL or with different certificate settings"
         else
           puts "[!] WARNING - Connection test failed (transport error): #{e.message}"
-          puts "  This may indicate network issues or incorrect transport configuration"
+          puts " This may indicate network issues or incorrect transport configuration"
         end
         false
       rescue WinRM::WinRMEndpointUnavailableError => e
         puts "[!] WARNING - Connection failed for #{endpoint}"
-        puts "  WinRM service may not be running (check if HTTP/HTTPS listener is enabled)"
+        puts " WinRM service may not be running (check if HTTP/HTTPS listener is enabled)"
       rescue WinRM::WinRMSessionError => e
         puts "[!] WARNING - Session creation failed for #{endpoint}"
-        puts "  This may indicate issues with the PowerShell session setup"
+        puts " This may indicate issues with the PowerShell session setup"
       rescue => e
         puts "[!] WARNING - Connection test failed: #{e.message}"
-        puts "  This is a generic connection error. Check network connectivity and target system status"
+        puts " This is a generic connection error. Check network connectivity and target system status"
       end
 
       begin; conn.reset; rescue; end if defined?(conn) && conn.respond_to?(:reset)
@@ -110,7 +111,7 @@ module EvilCTF
       if hash
         WinRM::Connection.new(
           endpoint: endpoint,
-          user:     user,
+          user: user,
           password: '',
           transport: :negotiate,
           **options
@@ -118,20 +119,30 @@ module EvilCTF
       else
         WinRM::Connection.new(
           endpoint: endpoint,
-          user:     user,
+          user: user,
           password: pass,
           **options
         )
       end
     rescue => e
       puts "[!] WARNING - Failed to create connection to #{endpoint}"
-      puts "  Error details: #{e.message}"
-      puts "  This may indicate:"
-      puts "    - Network connectivity issues"
-      puts "    - Firewall blocking the connection"
-      puts "    - Incorrect credentials or authentication method"
-      puts "    - WinRM service not running on target system"
+      puts " Error details: #{e.message}"
+      puts " This may indicate:"
+      puts " - Network connectivity issues"
+      puts " - Firewall blocking the connection"
+      puts " - Incorrect credentials or authentication method"
+      puts " - WinRM service not running on target system"
       nil
+    end
+
+    # ---------- Exit handling ----------
+    def self.exit_session(shell)
+      begin
+        shell.close if shell
+      rescue => e
+        puts "[!] WARNING - shell.close failed: #{e.message}"
+      end
+      :exit
     end
   end
 end
