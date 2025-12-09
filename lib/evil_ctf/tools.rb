@@ -666,7 +666,7 @@ module EvilCTF::Tools
   def self.upload_file(local_path, remote_path, shell, encrypt: false, chunk_size: 40000)
     return false unless File.exist?(local_path)
     content = File.binread(local_path)
-    content = xor_crypt(content) if encrypt
+    content = EvilCTF::Crypto.xor_crypt(content) if encrypt
     base64_content = Base64.strict_encode64(content)
     # Normalize Windows paths for PowerShell
     normalized_remote_path = remote_path.gsub('\\', '/')
