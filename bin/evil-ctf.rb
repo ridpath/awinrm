@@ -27,8 +27,8 @@ require 'set'
 
 Signal.trap('INT') { puts "\n[!] Ctrl-C detected, exiting cleanly..."; exit }
 
-# Compatibility shim – define Fixnum for Ruby 3.x
-class Fixnum < Integer; end unless defined?(Fixnum)
+# Compatibility shim – define Fixnum for Ruby 3.x - no longer needed
+#class Fixnum < Integer; end unless defined?(Fixnum)
 
 # Root namespace
 module EvilCTF; end
