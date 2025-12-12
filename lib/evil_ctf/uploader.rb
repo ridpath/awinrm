@@ -29,7 +29,8 @@ module EvilCTF::Uploader
   def self.upload_file(local_path, remote_path, shell,
                        encrypt: false,
                        chunk_size: DEFAULT_CHUNK_SIZE,
-                       verify: true)
+                       verify: true,
+                       xor_key: nil)
     return false unless File.exist?(local_path)
 
     log_debug("Preparing streaming upload: #{local_path} -> #{remote_path}")
@@ -76,7 +77,7 @@ module EvilCTF::Uploader
     File.open(local_path, 'rb') do |f|
       idx = 0
       while (buf = f.read(chunk_size))
-        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf) : buf
+        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf, xor_key) : buf
         b64 = Base64.strict_encode64(payload)
 
         # Use a single-quoted here-string to avoid any quoting issues
@@ -119,7 +120,8 @@ module EvilCTF::Uploader
   # ---------------------------------------------
   def self.download_file(remote_path, local_path, shell,
                          encrypt: false,
-                         allow_empty: true)
+                         allow_empty: true,
+                         xor_key: nil)
     # Verify that the file exists on the target
     exist = shell.run("Test-Path '#{ps_single_quote_escape(remote_path)}'")
     log_debug("Exist check output:\n#{exist.output}")
@@ -157,7 +159,7 @@ module EvilCTF::Uploader
     end
 
     data = Base64.strict_decode64(clean_output)
-    data = EvilCTF::Crypto.xor_crypt(data) if encrypt
+    data = EvilCTF::Crypto.xor_crypt(data, xor_key) if encrypt
 
     FileUtils.mkdir_p(File.dirname(local_path))
 
