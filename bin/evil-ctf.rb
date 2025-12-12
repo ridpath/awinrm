@@ -105,9 +105,8 @@ OptionParser.new do |opts|
   opts.banner = 'Usage: evil-ctf.rb [options]'
 
   opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }
-  opts.on('-u', '--user USER', 'Username')                         { |v| options[:user] = v }
-  opts.on('-p', '--password PASS', 'Password')                     { |v| options[:password] = v }
-  opts.on('-H', '--hash HASH', 'NTLM hash')                        { |v| options[:hash] = v }
+  opts.on('-u', '--username USERNAME', 'Username')                 { |v| options[:username] = v }
+  opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
   opts.on('--hosts FILE', 'Multiple hosts file')                   { |v| options[:hosts] = v }
   opts.on('--port PORT', Integer, 'Port (default: 5985)')          { |v| options[:port] = v }
   opts.on('--ssl', 'Use HTTPS (5986 typical)')                     { options[:ssl] = true }
@@ -188,13 +187,11 @@ if options[:hosts]
 end
 
 # ---------------- Validate Single-Host ----------------
-%i[ip user].each do |k|
+%i[ip username].each do |k|
   abort "[-] Missing required --#{k}" unless options[k]
 end
 
-unless options[:password] || options[:hash] || options[:kerberos]
-  abort "[-] Must provide --password, --hash, or --kerberos"
-end
+options[:user] = options[:username] if options[:username]
 
 add_ipv6_to_hosts(options[:ip].split('%').first, 'ipv6addr') if options[:ip].include?(':')
 # ---------------- Session Start ----------------
