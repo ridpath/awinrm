@@ -34,15 +34,19 @@ module EvilCTF::Enums
     # Use a more compact approach similar to winPEAS.bat's structure
     cmds = case type
            when 'basic'
-             ['whoami /all', 'net user', 'systeminfo']
+             ['cmd /c whoami /all', 'net user', 'systeminfo']
            when 'network'
              ['ipconfig /all',
               'Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,State,OwningProcess',
               'netstat -ano']
            when 'privilege'
-             ['whoami /priv',
+             ['cmd /c whoami /priv',
               'net localgroup Administrators',
-              'Get-WmiObject Win32_Service | Where-Object {$_.StartName -notmatch "LocalSystem"}']
+              'Get-WmiObject Win32_Service | Where-Object {$_.StartName -notmatch "LocalSystem"}',
+              'Get-NetUser -Filter * | Select-Object Name,LastLogon,Description',
+              'Get-NetGroupMember -GroupName "Domain Admins" | Select-Object MemberName,GroupName',
+              'Get-WmiObject Win32_Share | Where-Object {$_.Path -ne $null}',
+              'Get-NetProcess | Select-Object ProcessName,UserName,CommandLine']
            when 'av_check'
              ['Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AntivirusEnabled,AMServiceEnabled',
               'Get-Service WinDefend']
@@ -53,7 +57,7 @@ module EvilCTF::Enums
            when 'deep'
              [
                # Simplified deep enumeration focused on key areas
-               'whoami /all',
+               'cmd /c whoami /all',
                'systeminfo',
                'net user',
                'net localgroup Administrators',
