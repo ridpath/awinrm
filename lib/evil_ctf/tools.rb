@@ -71,7 +71,7 @@ module EvilCTF::Tools
       search_patterns: ['Rubeus.exe', 'Rubeus*.exe'],
       description: 'Kerberos abuse / roasting tool',
       url: 'https://github.com/GhostPack/Rubeus',
-      download_url: 'https://github.com/GhostPack/Rubeus/releases/latest/download/Rubeus.exe',
+      download_url: 'https://github.com/giveen/compiled-exploit-binaries/blob/main/Rubeus.exe',
       backup_urls: [
         'https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/CompiledBinaries/Rubeus.exe'
       ],
