@@ -76,101 +76,7 @@ module EvilCTF::Uploader
     File.open(local_path, 'rb') do |f|
       idx = 0
       while (buf = f.read(chunk_size))
-        key = options[:xor_key] || EvilCTF::Crypto::DEFAULT_KEY                                                                                                                                                                
-        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf, key) : buf
-        b64 = Base64.strict_encode64(payload)
-
-        # Use a single-quoted here-string to avoid any quoting issues
-        # Example PowerShell snippet writes bytes via Append mode
-        ps_chunk = <<~PS
-          try {
-            $b64 = @'
-#{b64}
-'@
-            $bytes = [Convert]::FromBase64String($b64)
-            $path = '#{escaped_remote}'
-            $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append)
-            $fs.Write($bytes, 0, $bytes.Length)
-            $fs.Close()
-            "CHUNK #{idx}"
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-
-        log_debug("Uploading chunk #{idx}, size=#{payload.bytesize}")
-        result = shell.run(ps_chunk)
-        log_debug("Chunk #{idx} output: #{result.output}")
-
-        # Add progress tracking
-        if idx % 10 == 0 || buf.size < chunk_size
-          puts "[*] Upload progress: #{idx * 100 / (File.size(local_path) / chunk_size).round(2)}% (#{idx} chunks)"
-        end
-
-        return false unless result.output.include?("CHUNK #{idx}")
-
-        idx += 1
-      end
-    end
-  end
-
-  # ---------------------------------------------
-  # Upload a local file to the remote target (streaming chunked)
-  # - shell.run(ps) must return an object with `output` string
-  # - encrypt: XOR each raw byte stream before base64-encoding
-  # - verify: compute SHA256 locally and compare to remote Get-FileHash
-  # ---------------------------------------------
-  def self.upload_file(local_path, remote_path, shell,
-                       encrypt: false,
-                       chunk_size: DEFAULT_CHUNK_SIZE,
-                       verify: true)
-    return false unless File.exist?(local_path)
-
-    log_debug("Preparing streaming upload: #{local_path} -> #{remote_path}")
-
-    # Compute local SHA256 (streamed) for final verification
-    local_sha256 = Digest::SHA256.file(local_path).hexdigest
-    log_debug("Local SHA256: #{local_sha256}")
-
-    # Ensure remote directory exists (PowerShell New-Item -Force for directory)
-    remote_dir = File.dirname(remote_path).gsub('\\', '\\\\')
-    ps_mkdir = <<~PS
-      try {
-        $d = '#{ps_single_quote_escape(remote_dir)}'
-        if (!(Test-Path $d)) { New-Item -Path $d -ItemType Directory -Force | Out-Null }
-        "OK"
-      } catch {
-        "ERROR: $($_.Exception.Message)"
-      }
-    PS
-
-    dm = shell.run(ps_mkdir)
-    log_debug("Remote mkdir output: #{dm.output}")
-
-    # Initialize (create/overwrite) the remote file
-    escaped_remote = ps_single_quote_escape(remote_path)
-    ps_init = <<~PS
-      try {
-        $path = '#{escaped_remote}'
-        if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
-        # Create an empty file
-        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Create)
-        $fs.Close()
-        "INIT"
-      } catch {
-        "ERROR: $($_.Exception.Message)"
-      }
-    PS
-
-    init = shell.run(ps_init)
-    log_debug("Init output: #{init.output}")
-    return false unless init.output.include?('INIT')
-
-    # Stream the local file, chunk by chunk
-    File.open(local_path, 'rb') do |f|
-      idx = 0
-      while (buf = f.read(chunk_size))
-        payload = encrypt ? xor_crypt(buf) : buf
+        payload = encrypt ? EvilCTF::Crypto.xor_crypt(buf) : buf
         b64 = Base64.strict_encode64(payload)
 
         # Use a single-quoted here-string to avoid any quoting issues
@@ -251,7 +157,7 @@ module EvilCTF::Uploader
     end
 
     data = Base64.strict_decode64(clean_output)
-    data = xor_crypt(data) if encrypt
+    data = EvilCTF::Crypto.xor_crypt(data) if encrypt
 
     FileUtils.mkdir_p(File.dirname(local_path))
 
