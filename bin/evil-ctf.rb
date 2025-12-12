@@ -28,7 +28,8 @@ require 'set'
 Signal.trap('INT') do
   puts "\n[!] Ctrl-C detected, exiting cleanly..."
   $evil_ctf_should_exit = true
-  # optionally: shell.close if defined?(shell) && shell
+  # Force exit if we're in a blocking operation
+  Thread.new { sleep(5); exit! } if defined?($evil_ctf_should_exit)
 end
 
 
