@@ -107,6 +107,7 @@ OptionParser.new do |opts|
   opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }
   opts.on('-u', '--username USERNAME', 'Username')                 { |v| options[:username] = v }
   opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
+  opts.on('-H', '--hash HASH', 'NTLM hash')                        { |v| options[:hash] = v }
   opts.on('--hosts FILE', 'Multiple hosts file')                   { |v| options[:hosts] = v }
   opts.on('--port PORT', Integer, 'Port (default: 5985)')          { |v| options[:port] = v }
   opts.on('--ssl', 'Use HTTPS (5986 typical)')                     { options[:ssl] = true }
