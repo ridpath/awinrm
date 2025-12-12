@@ -182,8 +182,6 @@ module EvilCTF::Session
               puts ' history clear - Clear history file'
               puts ' profile save <name> - Save current options as profile'
               puts ' get-unquotedservices - Show all unquoted service paths'
-              puts ' upload <local> <remote> - Upload file (original Evil-WinRM style)'
-              puts ' download <remote> <local> - Download file (original Evil-WinRM style)'
               puts ' load_ps1 <local_ps1> - Upload and load PS1 script'
               puts ' invoke-binary <local_bin> [args] - Upload and execute binary'
               puts ' services - List services'
