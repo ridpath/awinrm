@@ -115,8 +115,44 @@ module EvilCTF::Session
         begin
           Timeout.timeout(1800) do
             prompt = shell.run('prompt').output
-            input = Readline.readline(prompt, true)
+            # Use a non-blocking approach for readline to allow interrupt detection
+            input = nil
+            
+            # Create a thread to read input with timeout
+            input_thread = Thread.new do
+              begin
+                input = Readline.readline(prompt, true)
+              rescue Interrupt
+                # Handle interrupt in the reading thread
+                $evil_ctf_should_exit = true
+                should_exit = true
+                return
+              end
+            end
+            
+            # Wait for input or timeout (with short interval to check exit flag)
+            while !input_thread.join(0.1) && !should_exit
+              if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
+                should_exit = true
+                break
+              end
+            end
+            
+            # If thread completed, get the input
+            if input_thread.alive?
+              input_thread.join
+            else
+              input = input_thread.value
+            end
+            
+            # Check exit flag after reading input but before processing
+            if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
+              should_exit = true
+              next
+            end
+            
             break if input.nil?
+            
             input = input.strip
             next if input.empty?
 
@@ -410,6 +446,7 @@ module EvilCTF::Session
           should_exit = true
         rescue Interrupt
           puts "\n[!] Ctrl-C detected; exiting."
+          $evil_ctf_should_exit = true
           should_exit = true
         rescue => e
           # Handle connection errors gracefully
@@ -431,7 +468,12 @@ module EvilCTF::Session
             puts "[!] WARNING - Session error: #{e.class}: #{e.message}"
           end
 
-          # Safe reconnect logic
+          # Check exit flag in error handler too:
+          if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
+            should_exit = true
+          end
+
+          # Safe reconnect logic with exit check:
           if session_options[:reconnect_attempts].to_i > 0 && !should_exit
             puts "[*] Attempting to reconnect (#{session_options[:reconnect_attempts]} attempts remaining)..."
             sleep(5)
@@ -461,9 +503,12 @@ module EvilCTF::Session
         puts "[!] Maximum reconnection attempts reached. Exiting."
         return false
       end
+    ensure
+      # Ensure cleanup happens even on interruption or errors
+      EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
+      shell.close if shell
     end
 
-    shell.close if shell
     puts '[+] Session closed.'
     true
   end
