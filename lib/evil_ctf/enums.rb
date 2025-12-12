@@ -43,10 +43,8 @@ module EvilCTF::Enums
              ['cmd /c whoami /priv',
               'net localgroup Administrators',
               'Get-WmiObject Win32_Service | Where-Object {$_.StartName -notmatch "LocalSystem"}',
-              'Get-NetUser -Filter * | Select-Object Name,LastLogon,Description',
-              'Get-NetGroupMember -GroupName "Domain Admins" | Select-Object MemberName,GroupName',
-              'Get-WmiObject Win32_Share | Where-Object {$_.Path -ne $null}',
-              'Get-NetProcess | Select-Object ProcessName,UserName,CommandLine']
+              'net share',
+              'Get-Process | Select-Object Name,Id']
            when 'av_check'
              ['Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AntivirusEnabled,AMServiceEnabled',
               'Get-Service WinDefend']
