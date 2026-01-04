@@ -33,6 +33,7 @@ module EvilCTF::Session
     puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint...)"
 
     # Connection creation
+    # Propagate debug flag into WinRM connection options
     conn = if session_options[:kerberos]
       WinRM::Connection.new(
         endpoint: endpoint,
@@ -41,7 +42,8 @@ module EvilCTF::Session
         transport: :kerberos,
         realm: session_options[:realm],
         keytab: session_options[:keytab],
-        no_ssl_peer_verification: true
+        no_ssl_peer_verification: true,
+        debug: session_options[:debug]
       )
     elsif session_options[:hash]
       WinRM::Connection.new(
@@ -49,14 +51,16 @@ module EvilCTF::Session
         user: session_options[:user],
         password: '',
         transport: :negotiate,
-        no_ssl_peer_verification: true
+        no_ssl_peer_verification: true,
+        debug: session_options[:debug]
       )
     else
       WinRM::Connection.new(
         endpoint: endpoint,
         user: session_options[:user],
         password: session_options[:password],
-        no_ssl_peer_verification: true
+        no_ssl_peer_verification: true,
+        debug: session_options[:debug]
       )
     end
 

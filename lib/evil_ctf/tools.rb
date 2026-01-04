@@ -1,3 +1,12 @@
+# frozen_string_literal: true
+# Compatibility shim: require all tool submodules
+require_relative 'tools/crypto'
+
+module EvilCTF
+  module Tools
+    # This file intentionally small: use files under lib/evil_ctf/tools/*
+  end
+end
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # Compatibility shim – define Fixnum for Ruby 3.x
@@ -11,7 +20,6 @@ require 'base64'
 require 'digest/sha1'
 require 'readline'
 require 'shellwords'
-require 'evil_ctf/crypto'
 require 'evil_ctf/uploader'
 
 
