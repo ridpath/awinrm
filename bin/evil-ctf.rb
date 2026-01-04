@@ -101,6 +101,8 @@ options = {
   banner_mode: :minimal  # NEW: Default to minimal banner for CTF
 }
 
+options[:debug] = false
+
 OptionParser.new do |opts|
   opts.banner = 'Usage: evil-ctf.rb [options]'
 
@@ -134,6 +136,7 @@ OptionParser.new do |opts|
   opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
   opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }
   opts.on('--banner MODE', 'Banner mode (minimal|expanded)')       { |v| options[:banner_mode] = v&.to_sym }  # NEW: Banner mode option
+  opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
   opts.on('-h', '--help', 'Show help')                             { puts opts; exit }
 end.parse!
 

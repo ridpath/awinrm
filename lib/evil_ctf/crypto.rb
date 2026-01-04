@@ -1,15 +1,12 @@
-# lib/evil_ctf/crypto.rb
-require 'base64'
-require 'digest/sha1'
+# Compatibility shim: redirect legacy EvilCTF::Crypto calls to EvilCTF::Tools::Crypto
+require_relative 'tools/crypto'
+module EvilCTF
+  module Crypto
+    DEFAULT_KEY = EvilCTF::Tools::Crypto::DEFAULT_KEY
 
-module EvilCTF::Crypto                                                                                                                                                                                                 
-  # Default key (can be overridden via options)                                                                                                                                                                        
-  DEFAULT_KEY = 0x42                                                                                                                                                                                                   
-                                                                                                                                                                                                                       
-  def self.xor_crypt(data, key = DEFAULT_KEY)                                                                                                                                                                          
-    data.bytes.map { |b| (b ^ key).chr }.join                                                                                                                                                                          
-  rescue => e                                                                                                                                                                                                          
-    puts "[!] XOR crypt failed: #{e.message}" if ENV['EVC_DEBUG']                                                                                                                                                      
-    data                                                                                                                                                                                                               
-  end                                                                                                                                                                                                                  
-end 
+    def self.xor_crypt(data, key = DEFAULT_KEY)
+      warn '[!] Deprecated: EvilCTF::Crypto is deprecated; use EvilCTF::Tools::Crypto' if ENV['EVC_DEBUG']
+      EvilCTF::Tools::Crypto.xor_crypt(data, key)
+    end
+  end
+end

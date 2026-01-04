@@ -1,0 +1,215 @@
+[2026-01-04 12:57:58 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 12:57:58 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 12:57:58 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 12:57:58 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 12:57:58 -0700] upload_file => true
+[2026-01-04 12:57:59 -0700] download_file => false
+[2026-01-04 12:57:59 -0700] CommandManager.expand_macro ran
+[2026-01-04 12:57:59 -0700] [+] Session test completed
+[2026-01-04 13:06:14 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:06:14 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:06:14 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:06:14 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:06:14 -0700] upload_file => true
+[2026-01-04 13:06:14 -0700] download_file => true
+[2026-01-04 13:06:14 -0700] compare => equal=false
+[2026-01-04 13:06:14 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:06:14 -0700] [+] Session test completed
+[2026-01-04 13:11:42 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:11:42 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:11:42 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:11:42 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:11:42 -0700] upload_file => ok=true local_hash=87d287899a015f6f652aa657d683e35048cb6ddec34ecc65a22eb7fe107ffe1d remote_hash=
+[2026-01-04 13:11:42 -0700] download_file => true
+[2026-01-04 13:11:42 -0700] compare => equal=false
+[2026-01-04 13:11:42 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:11:42 -0700] [+] Session test completed
+[2026-01-04 13:12:00 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:12:00 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:12:00 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:12:00 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:12:00 -0700] upload_file => ok=true local_hash=a32c88126442afe79bf0bca58449bb48bea8c85d0f9749fe35008e756bb39ade remote_hash=A32C88126442AFE79BF0BCA58449BB48BEA8C85D0F9749FE35008E756BB39ADE
+[2026-01-04 13:12:00 -0700] download_file => true
+[2026-01-04 13:12:00 -0700] compare => equal=true
+[2026-01-04 13:12:00 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:12:00 -0700] [+] Session test completed
+[2026-01-04 13:18:08 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:18:08 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:18:08 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:18:08 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:18:09 -0700] upload_file => ok=true local_hash=ba98ef50109650cd60cf5bcc03f720837bbb9cca9b4a0dca342ae2dc9f3f5802 remote_hash=34E8EA3B4EA649D951E88483AE281A381A403B1B237E5ABF13F386E67B48C1A9
+[2026-01-04 13:18:09 -0700] download_file => true
+[2026-01-04 13:18:09 -0700] compare => equal=false
+[2026-01-04 13:18:09 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:18:09 -0700] [+] Session test completed
+[2026-01-04 13:18:36 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:18:37 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:18:37 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:18:37 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:18:37 -0700] upload_file => ok=true local_hash=25d9631815df140d39b3ccfd59f26d1057681068bde23d27606d7183524c4eff remote_hash=106544B0AF7BA282E98C0ED31E4B4C0F8E3544D35CD5BEA8FE353D4A31956FCA
+[2026-01-04 13:18:37 -0700] download_file => true
+[2026-01-04 13:18:37 -0700] compare => equal=false
+[2026-01-04 13:18:37 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:18:37 -0700] [+] Session test completed
+[2026-01-04 13:19:09 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:19:09 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:19:09 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:19:09 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:19:10 -0700] upload_file => ok=true local_hash=e387b0f24b77752ea79173c80add24d2deb2ae809a84ea3ea72d7010b39cb240 remote_hash=309C3CE4AF94C642C354439F03AE1465948590CEFC784BFB637DF9A2C66E4974
+[2026-01-04 13:19:10 -0700] download_file => true
+[2026-01-04 13:19:10 -0700] compare => equal=false
+[2026-01-04 13:19:10 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:19:10 -0700] [+] Session test completed
+[2026-01-04 13:19:37 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:19:37 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:19:37 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:19:38 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:19:38 -0700] upload_file => ok=true local_hash=fb2df7797e7915c8a947de53b306fb8d3fca2dfddb17c4e92631a564c83b9f8c remote_hash=3D5CB44A4B09285BA16C0DE769AC5E2C41CCD613D2C81E69DDF4B8DF14F791EF
+[2026-01-04 13:19:38 -0700] download_file => true
+[2026-01-04 13:19:38 -0700] compare => equal=false
+[2026-01-04 13:19:38 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:19:38 -0700] [+] Session test completed
+[2026-01-04 13:19:52 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:19:52 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:19:52 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:19:52 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:19:52 -0700] upload_file => ok=true local_hash=d44bb45d6836055242d15768feec0df1243c83d497c8d0cd4d4afe35b8735969 remote_hash=38111FF10CB3F53EDB3F030C183A23A3D5E27B08804B4930ACF75A0CF8102B0B
+[2026-01-04 13:19:52 -0700] download_file => true
+[2026-01-04 13:19:52 -0700] compare => equal=false
+[2026-01-04 13:19:52 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:19:52 -0700] [+] Session test completed
+[2026-01-04 13:20:11 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:11 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:11 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:11 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:11 -0700] upload_file => ok=true local_hash=0bb5416f1aba9f09dae03eff0805e109783218bcaf2d4c2ed577e2a292565702 remote_hash=AA8142FFE8A7A11F0B16A798F2A78D4ABE2DFC88BAE11A3D7BF64A1D4690E73E
+[2026-01-04 13:20:11 -0700] download_file => true
+[2026-01-04 13:20:11 -0700] compare => equal=false
+[2026-01-04 13:20:11 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:11 -0700] [+] Session test completed
+[2026-01-04 13:20:12 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:13 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:13 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:13 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:13 -0700] upload_file => ok=true local_hash=e941cdcb8964b1f1eb078a75913b051c4608387bd5a4e11102ada63cba4ef3d1 remote_hash=F70CC8AEA06158CFA3C141D7BB83392E9F9B7BAA2CA599D29E6F92E7AB3A1427
+[2026-01-04 13:20:13 -0700] download_file => true
+[2026-01-04 13:20:13 -0700] compare => equal=false
+[2026-01-04 13:20:13 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:13 -0700] [+] Session test completed
+[2026-01-04 13:20:14 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:14 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:14 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:14 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:15 -0700] upload_file => ok=true local_hash=017fb3e7911410123a598d696afd078d2ba94629d5332a1933879e90a43daad9 remote_hash=4C020B3CCEE47D3C9A866EC4816C7EE02635EAA30FFFAD2569E1DD9D8DA7D256
+[2026-01-04 13:20:15 -0700] download_file => true
+[2026-01-04 13:20:15 -0700] compare => equal=false
+[2026-01-04 13:20:15 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:15 -0700] [+] Session test completed
+[2026-01-04 13:20:16 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:16 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:16 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:16 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:16 -0700] upload_file => ok=true local_hash=30b090a95f787c51cedd76350db9c18c40276c33bd4ad2d9b605a163893f1dfe remote_hash=1C896203B98ECB863E95779DCDA3F423CC3FB8E9F3A8C5D25DD0825E18B4CE22
+[2026-01-04 13:20:16 -0700] download_file => true
+[2026-01-04 13:20:16 -0700] compare => equal=false
+[2026-01-04 13:20:16 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:16 -0700] [+] Session test completed
+[2026-01-04 13:20:17 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:18 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:18 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:18 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:18 -0700] upload_file => ok=true local_hash=17c6f8aa1e8fa7478d1dea51119e939d8da914953e2fa3ef321b230f1e85bb18 remote_hash=DD3D23F055C35FCF2196236F444230453AAF4FEF2323D86DC08A85D000BFC415
+[2026-01-04 13:20:18 -0700] download_file => true
+[2026-01-04 13:20:18 -0700] compare => equal=false
+[2026-01-04 13:20:18 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:18 -0700] [+] Session test completed
+[2026-01-04 13:20:39 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:39 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:39 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:40 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:40 -0700] upload_file => ok=true local_hash=a143eacb01b2d2e7e0ed545d2485e388d03719b300da48ca3c27ba6ee4b7723a remote_hash=0FA93356F6DC635E83566751BF004045140A9DB406695DDBCB4323A37F05F4A0 tmp_hash=
+[2026-01-04 13:20:40 -0700] download_file => true
+[2026-01-04 13:20:40 -0700] compare => equal=false
+[2026-01-04 13:20:40 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:40 -0700] [+] Session test completed
+[2026-01-04 13:20:53 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:20:53 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:20:53 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:20:53 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:20:53 -0700] upload_file => ok=true local_hash=adc7eb85bd549bac4e011913ae887eb1f6db96929b3922424184c4108a71d6e1 remote_hash=74E6CCC84200DD916411D66FD0C725EF01805D4DE62AB031F4C032BF5CBBDADC tmp_hash=
+[2026-01-04 13:20:53 -0700] download_file => true
+[2026-01-04 13:20:53 -0700] compare => equal=false
+[2026-01-04 13:20:53 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:20:53 -0700] [+] Session test completed
+[2026-01-04 13:22:43 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:22:43 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:22:43 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:22:43 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:22:43 -0700] ERROR upload: ArgumentError: unknown keyword: :logger
+[2026-01-04 13:22:43 -0700] download_file => true
+[2026-01-04 13:22:43 -0700] compare => equal=false
+[2026-01-04 13:22:43 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:22:43 -0700] [+] Session test completed
+[2026-01-04 13:23:05 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:23:06 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:23:06 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:23:06 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:23:06 -0700] ERROR upload: ArgumentError: unknown keyword: :logger
+[2026-01-04 13:23:06 -0700] download_file => true
+[2026-01-04 13:23:06 -0700] compare => equal=false
+[2026-01-04 13:23:06 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:23:06 -0700] [+] Session test completed
+[2026-01-04 13:23:39 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:23:39 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:23:39 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:23:39 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:23:39 -0700] ERROR upload: ArgumentError: unknown keyword: :logger
+[2026-01-04 13:23:39 -0700] download_file => true
+[2026-01-04 13:23:39 -0700] compare => equal=false
+[2026-01-04 13:23:39 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:23:39 -0700] [+] Session test completed
+[2026-01-04 13:24:03 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:24:03 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:24:03 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:24:04 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:24:04 -0700] ABOUT TO CALL UPLOAD wrapper
+[2026-01-04 13:24:04 -0700] ERROR upload: ArgumentError: unknown keyword: :logger
+[2026-01-04 13:24:04 -0700] download_file => true
+[2026-01-04 13:24:04 -0700] compare => equal=false
+[2026-01-04 13:24:04 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:24:04 -0700] [+] Session test completed
+[2026-01-04 13:24:18 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:24:19 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:24:19 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:24:19 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:24:19 -0700] ABOUT TO CALL UPLOAD wrapper
+[2026-01-04 13:24:19 -0700] ERROR upload: ArgumentError: unknown keyword: :logger
+[2026-01-04 13:24:19 -0700] download_file => true
+[2026-01-04 13:24:19 -0700] compare => equal=false
+[2026-01-04 13:24:19 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:24:19 -0700] [+] Session test completed
+[2026-01-04 13:24:56 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:24:56 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:24:56 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:24:56 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:24:56 -0700] ABOUT TO CALL UPLOAD wrapper
+[2026-01-04 13:24:56 -0700] mkdir output: OK
+[2026-01-04 13:24:56 -0700] init output: INIT
+[2026-01-04 13:24:56 -0700] chunk 0 output: CHUNK 0
+[2026-01-04 13:24:57 -0700] tmp_hash raw output: F0D70252D6A97FF16E83599D179F8459D958D747CF924F3AB3D97AFC9685F2C2
+[2026-01-04 13:24:57 -0700] move output: MOVED
+[2026-01-04 13:24:57 -0700] final_hash raw output: F0D70252D6A97FF16E83599D179F8459D958D747CF924F3AB3D97AFC9685F2C2
+[2026-01-04 13:24:57 -0700] upload_file => ok=true local_hash=f0d70252d6a97ff16e83599d179f8459d958d747cf924f3ab3d97afc9685f2c2 remote_hash=F0D70252D6A97FF16E83599D179F8459D958D747CF924F3AB3D97AFC9685F2C2 tmp_hash=F0D70252D6A97FF16E83599D179F8459D958D747CF924F3AB3D97AFC9685F2C2
+[2026-01-04 13:24:57 -0700] download_file => true
+[2026-01-04 13:24:57 -0700] compare => equal=true
+[2026-01-04 13:24:57 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:24:57 -0700] [+] Session test completed
+[2026-01-04 13:27:17 -0700] [*] Creating WinRM connection to http://192.168.0.143:5985/wsman as jabbatheduck
+[2026-01-04 13:27:17 -0700] hostname => exit=0 output=Old-W10
+[2026-01-04 13:27:17 -0700] whoami => exit=0 output=old-w10\jabbatheduck
+[2026-01-04 13:27:18 -0700] Defender RealTimeProtectionEnabled => True
+[2026-01-04 13:27:18 -0700] upload_file => ok=true local_hash=d3626c830308ed8451cc721fb3b24f62e69e9235a41f5f9719a1fd2ad58a95cf remote_hash=D3626C830308ED8451CC721FB3B24F62E69E9235A41F5F9719A1FD2AD58A95CF tmp_hash=D3626C830308ED8451CC721FB3B24F62E69E9235A41F5F9719A1FD2AD58A95CF
+[2026-01-04 13:27:18 -0700] download_file => true
+[2026-01-04 13:27:18 -0700] compare => equal=true
+[2026-01-04 13:27:18 -0700] CommandManager.expand_macro ran
+[2026-01-04 13:27:18 -0700] [+] Session test completed
