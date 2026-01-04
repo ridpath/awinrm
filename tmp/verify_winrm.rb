@@ -22,8 +22,26 @@ begin
   File.write(local, "verify #{Time.now}\n")
   remote = 'C:\Users\Public\verify_upload.txt'
   puts "Uploading #{local} -> #{remote}"
-  ok = EvilCTF::Uploader.upload_file(local, remote, shell, verify: true)
-  puts "upload result: #{ok.inspect}"
+  begin
+    res = EvilCTF::Uploader.upload_file(local, remote, shell, verify: true)
+    puts "upload result: #{res.inspect}"
+
+    # attempt download to verify content matches
+    dl = 'tmp/verify_download.txt'
+    puts "Downloading #{remote} -> #{dl}"
+    EvilCTF::Uploader.download_file(remote, dl, shell)
+    local_hash = Digest::SHA256.file(local).hexdigest
+    dl_hash = Digest::SHA256.file(dl).hexdigest
+    puts "local_hash=#{local_hash} dl_hash=#{dl_hash}"
+    if local_hash == dl_hash
+      puts "VERIFY: OK"
+    else
+      puts "VERIFY: MISMATCH"
+    end
+  rescue => e
+    puts "ERROR during upload/download: #{e.class}: #{e.message}"
+    puts e.backtrace.join("\n")
+  end
 ensure
   shell.close if shell
   begin; conn.reset; rescue; end
