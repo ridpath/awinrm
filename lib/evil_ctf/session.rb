@@ -40,6 +40,24 @@ module EvilCTF::Session
     EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
     puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint...)"
 
+    # --- Session Logging Setup ---
+    session_logfile = nil
+    if session_options[:log_session]
+      log_dir = File.expand_path('../../log', __dir__)
+      FileUtils.mkdir_p(log_dir)
+      ts = Time.now.strftime('%Y%m%d-%H%M%S')
+      ip_or_host = (session_options[:ip] || 'unknown').gsub(/[^\w\.-]/, '_')
+      session_logfile = File.join(log_dir, "session-#{ip_or_host}-#{ts}.log")
+      session_options[:session_logfile] = session_logfile
+      File.open(session_logfile, 'a') do |f|
+        f.puts "=== EvilCTF Session Log ==="
+        f.puts "Host: #{session_options[:ip]}"
+        f.puts "User: #{session_options[:user]}"
+        f.puts "Started: #{Time.now}"
+        f.puts "==========================="
+      end
+    end
+
     # Centralized connection creation
     conn = EvilCTF::Connection.build_full(
       endpoint: endpoint,
@@ -117,7 +135,7 @@ module EvilCTF::Session
             prompt = shell.run('prompt').output
             # Use a non-blocking approach for readline to allow interrupt detection
             input = nil
-            
+
             # Create a thread to read input with timeout
             input_thread = Thread.new do
               begin
@@ -129,7 +147,7 @@ module EvilCTF::Session
                 return
               end
             end
-            
+
             # Wait for input or timeout (with short interval to check exit flag)
             while !input_thread.join(0.1) && !should_exit
               if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
@@ -137,22 +155,22 @@ module EvilCTF::Session
                 break
               end
             end
-            
+
             # If thread completed, get the input
             if input_thread.alive?
               input_thread.join
             else
               input = input_thread.value
             end
-            
+
             # Check exit flag after reading input but before processing
             if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
               should_exit = true
               next
             end
-            
+
             break if input.nil?
-            
+
             input = input.strip
             next if input.empty?
 
@@ -163,6 +181,13 @@ module EvilCTF::Session
             end
 
             history.add(input)
+
+            # --- Session Logging: Log command ---
+            if session_logfile
+              File.open(session_logfile, 'a') do |f|
+                f.puts "\n[#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}] CMD: #{input}"
+              end
+            end
 
             case input
             when /^help$/i
@@ -438,6 +463,13 @@ module EvilCTF::Session
             result = shell.run(cmd)
             elapsed = Time.now - start
             puts result.output
+            # --- Session Logging: Log output ---
+            if session_logfile
+              File.open(session_logfile, 'a') do |f|
+                f.puts "[#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}] OUT:"
+                f.puts result.output
+              end
+            end
             unless last_command_was_tool_upload
               matches = EvilCTF::Tools.grep_output(result.output)
               if matches.any?
