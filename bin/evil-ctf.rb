@@ -104,43 +104,9 @@ options = {
 
 options[:debug] = false
 
-OptionParser.new do |opts|
-    opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
-  opts.banner = 'Usage: evil-ctf.rb [options]'
 
-  opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }
-  opts.on('-u', '--username USERNAME', 'Username')                 { |v| options[:username] = v }
-  opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
-  opts.on('-H', '--hash HASH', 'NTLM hash')                        { |v| options[:hash] = v }
-  opts.on('--hosts FILE', 'Multiple hosts file')                   { |v| options[:hosts] = v }
-  opts.on('--port PORT', Integer, 'Port (default: 5985)')          { |v| options[:port] = v }
-  opts.on('--ssl', 'Use HTTPS (5986 typical)')                     { options[:ssl] = true }
-  opts.on('--auto-exec', 'Auto execute staged tools')              { options[:auto_exec] = true }
-  opts.on('--stealth', 'Use ADS staging and random filenames') do
-    options[:stealth] = true
-    options[:random_names] = true
-  end
-  opts.on('--xor-key KEY', 'XOR encryption key (hex or decimal)') do |v|                                                                                                                                                 
-    options[:xor_key] = v.to_i(16) if v.start_with?('0x')                                                                                                                                                                
-    options[:xor_key] = v.to_i unless v.start_with?('0x')                                                                                                                                                                
-  end  
-  opts.on('--random-names', 'Randomize filenames')                 { options[:random_names] = true }
-  opts.on('--auto-evasion', 'Auto-disable Defender')               { options[:auto_evasion] = true }
-  opts.on('--beacon', 'Add sleep delay between commands')          { options[:beacon] = true }
-  opts.on('--webhook URL', 'Loot webhook URL')                     { |v| options[:webhook] = v }
-  opts.on('--log FILE', 'Log command output')                      { |v| options[:logfile] = v }
-  opts.on('--socks HOST:PORT', 'SOCKS proxy')                      { |v| options[:proxy] = v }
-  opts.on('--profile NAME', 'Load profile from profiles/*.yaml')   { |v| options[:profile] = v }
-  opts.on('--list-tools', 'List available tools and exit')         { options[:list_tools] = true }
-  opts.on('--enum TYPE', 'Run enumeration (basic, deep, etc.)')    { |v| options[:enum] = v }
-  opts.on('--fresh', 'Bypass enum cache')                          { options[:fresh] = true }
-  opts.on('-k', '--kerberos', 'Use Kerberos')                      { options[:kerberos] = true }
-  opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
-  opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }
-  opts.on('--banner MODE', 'Banner mode (minimal|expanded)')       { |v| options[:banner_mode] = v&.to_sym }  # NEW: Banner mode option
-  opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
-  opts.on('-h', '--help', 'Show help')                             { puts opts; exit }
-end.parse!
+# Delegate all CLI parsing and execution to EvilCTF::CLI
+exit EvilCTF::CLI.run(ARGV)
 
 # ---------------- Run Preflight ----------------
 # Temporary logger until options/profile are merged
