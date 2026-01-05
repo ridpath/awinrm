@@ -26,7 +26,7 @@ require 'concurrent'
 require 'set'
 
 Signal.trap('INT') do
-  puts "\n[!] Ctrl-C detected, exiting cleanly..."
+  LOGGER&.warn("\nCtrl-C detected, exiting cleanly...") rescue nil
   $evil_ctf_should_exit = true
   # Force exit if we're in a blocking operation
   Thread.new { sleep(5); exit! } if defined?($evil_ctf_should_exit)
@@ -49,20 +49,21 @@ require 'evil_ctf/banner'
 require 'evil_ctf/enums'
 require 'evil_ctf/uploader'
 require 'evil_ctf/sql_enum'
+require 'evil_ctf/logger'
 
 # ---------------- Preflight Check ----------------
 def run_preflight_check
-  puts "[*] Running preflight check..."
+  LOGGER&.info('[*] Running preflight check...')
 
   begin
     %w[loot profiles].each do |dir|
       unless Dir.exist?(dir)
         FileUtils.mkdir_p(dir)
-        puts "[+] Created missing directory: #{dir}/"
+        LOGGER&.info("[+] Created missing directory: #{dir}/")
       end
     end
   rescue => e
-    puts "[!] Failed preflight check: #{e.message}"
+    LOGGER&.error("[!] Failed preflight check: #{e.message}")
     exit 1
   end
 end
@@ -73,7 +74,7 @@ def add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
   entry = "#{ip} #{hostname}"
   return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
 
-  puts "[*] Adding IPv6 entry to #{hosts_file}: #{entry}"
+  LOGGER&.info("[*] Adding IPv6 entry to #{hosts_file}: #{entry}")
   cmd = "echo '#{entry}' >> #{hosts_file}"
 
   if Process.uid == 0
@@ -83,11 +84,11 @@ def add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
   end
 
   unless $?.success?
-    puts "[!] Failed to add entry. Manually add: sudo echo '#{entry}' >> #{hosts_file}"
+    LOGGER&.error("[!] Failed to add entry. Manually add: sudo echo '#{entry}' >> #{hosts_file}")
     exit 1
   end
 
-  puts "[+] IPv6 entry added successfully"
+  LOGGER&.info('[+] IPv6 entry added successfully')
 end
 
 # ---------------- Options ----------------
@@ -141,6 +142,8 @@ OptionParser.new do |opts|
 end.parse!
 
 # ---------------- Run Preflight ----------------
+# Temporary logger until options/profile are merged
+LOGGER = EvilCTF::Logger.new(nil)
 run_preflight_check
 
 # ---------------- Profile Load ----------------
@@ -148,6 +151,9 @@ if options[:profile]
   prof = EvilCTF::Session.load_config_profile(options[:profile])
   options = prof.merge(options)
 end
+
+# Initialize global logger instance
+LOGGER = EvilCTF::Logger.new(options[:logfile])
 
 # ---------------- Tool Listing ----------------
 if options[:list_tools]
@@ -157,19 +163,18 @@ end
 
 # ---------------- Multi-host ----------------
 if options[:hosts]
-  puts "[*] Reading hosts file: #{options[:hosts]}"
+  LOGGER&.info("[*] Reading hosts file: #{options[:hosts]}")
   hosts = EvilCTF::Session.parse_hosts_file(options[:hosts])
   if hosts.empty?
-    puts "[-] No valid hosts found"
+    LOGGER&.error('[-] No valid hosts found')
     exit 1
   end
-
-  puts "[*] Found #{hosts.size} host(s)"
+  LOGGER&.info("[*] Found #{hosts.size} host(s)")
 
   hosts.each_with_index do |host, idx|
-    puts "\n#{'='*60}"
-    puts "[*] Host #{idx+1}/#{hosts.size}: #{host[:ip]}"
-    puts "#{'='*60}"
+    LOGGER&.info("\n#{'='*60}")
+    LOGGER&.info("[*] Host #{idx+1}/#{hosts.size}: #{host[:ip]}")
+    LOGGER&.info("#{'='*60}")
 
     add_ipv6_to_hosts(host[:ip].split('%').first, 'ipv6addr') if host[:ip].include?(':')
 
@@ -180,13 +185,13 @@ if options[:hosts]
     begin
       EvilCTF::Session.run_session(session_options)
     rescue => e
-      puts "[!] Error with #{host[:ip]}: #{e.message}"
+      LOGGER&.error("[!] Error with #{host[:ip]}: #{e.message}")
     end
 
     sleep(2) unless idx == hosts.size - 1
   end
 
-  puts "\n[+] All sessions complete. Check ./loot/"
+  LOGGER&.info("\n[+] All sessions complete. Check ./loot/")
   exit
 end
 
@@ -200,4 +205,4 @@ options[:user] = options[:username] if options[:username]
 add_ipv6_to_hosts(options[:ip].split('%').first, 'ipv6addr') if options[:ip].include?(':')
 # ---------------- Session Start ----------------
 ok = EvilCTF::Session.run_session(options)
-puts '[+] Session closed. Loot saved under ./loot/' if ok
+LOGGER&.info('[+] Session closed. Loot saved under ./loot/') if ok
