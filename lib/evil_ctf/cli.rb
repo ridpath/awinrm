@@ -7,6 +7,7 @@ require_relative 'session'
 module EvilCTF
   module CLI
     def self.run(argv)
+      require 'yaml'
       options = {
         ip: nil, user: nil, password: nil, hash: nil,
         port: 5985, ssl: false, auto_exec: false, stealth: false,
@@ -55,15 +56,36 @@ module EvilCTF
 
       parser.parse!(argv)
 
-      # Normalize username
+      # Profile loading: merge profile if --profile is given
+
+      if options[:profile]
+        prof = nil
+        # Try profiles/NAME.yaml first, then config/profiles.yaml
+        prof_path1 = File.expand_path("../../profiles/#{options[:profile]}.yaml", __dir__)
+        prof_path2 = File.expand_path("../../config/profiles.yaml", __dir__)
+        if File.exist?(prof_path1)
+          prof = YAML.load_file(prof_path1)
+        elsif File.exist?(prof_path2)
+          all_profiles = YAML.load_file(prof_path2)
+          prof = all_profiles[options[:profile].to_s] if all_profiles
+        end
+        if prof
+          # Accept all keys from profile, including username, user, password, hash, port, ssl, etc.
+          options.merge!(prof.transform_keys(&:to_sym))
+        else
+          warn "[!] Profile '#{options[:profile]}' not found in profiles/ or config/profiles.yaml."
+        end
+      end
+
+      # Normalize username/user after merging profile and CLI
       options[:user] = options[:username] if options[:username]
+      options[:username] = options[:user] if options[:user] && !options[:username]
 
       if options[:ip].nil? || options[:user].nil?
         puts parser
         return 1
       end
 
-      # Profile loading, tool listing, etc. can be handled here if needed
       Session.run_session(options)
       0
     end

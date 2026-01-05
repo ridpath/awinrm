@@ -41,6 +41,7 @@ base_path = File.expand_path(File.dirname(__FILE__) + '/..')
 lib_path  = File.join(base_path, 'lib')
 $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
 
+
 # Load modular components
 require 'evil_ctf/session'
 require 'evil_ctf/tools'
@@ -50,6 +51,7 @@ require 'evil_ctf/enums'
 require 'evil_ctf/uploader'
 require 'evil_ctf/sql_enum'
 require 'evil_ctf/logger'
+require 'evil_ctf/cli'
 
 # ---------------- Preflight Check ----------------
 def run_preflight_check
