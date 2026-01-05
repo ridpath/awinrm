@@ -201,7 +201,72 @@ gem 'bundler', '~> 2.4.0'
 Ruby’s standard library covers the remaining imports (optparse, ipaddr, socket, fileutils, etc.).
 
 ---
+
+
 ## Usage Guide
+
+### Basic Authentication
+```bash
+ruby bin/evil-ctf.rb -i <target_ip> -u <username> -p <password>
+```
+
+### Pass-the-Hash
+```bash
+ruby evil-ctf.rb -i HOST -u USER -H NTLM_HASH
+```
+
+### TLS Encrypted Transport
+```bash
+ruby evil-ctf.rb -i HOST --ssl -u USER -p PASS
+```
+
+### SOCKS Proxy Pivot
+```bash
+ruby evil-ctf.rb -i HOST --socks 127.0.0.1:1080 -u USER -p PASS
+```
+
+### Staging and Recon Macros
+```bash
+tool all
+dump_creds
+dom_enum
+```
+
+---
+
+## Uploading to Alternate Data Streams (ADS)
+
+EvilCTF supports uploading files directly to Windows Alternate Data Streams (ADS) for stealth and OPSEC. This allows you to store data in hidden streams attached to files.
+
+#### How to Upload to an ADS
+1. **Start a session:**
+    ```bash
+    ruby evil-ctf.rb -i <target_ip> -u <username> -p <password>
+    ```
+2. **Enter the file operations menu:**
+    ```
+    fileops
+    ```
+3. **Choose "Upload file" and specify your local file.**
+4. **For the remote destination, use the format:**
+    ```
+    C:\Users\Public\target.txt:adsname
+    ```
+    This uploads your file into the ADS named `adsname` attached to `target.txt`.
+
+#### Verifying the ADS Upload
+On the target system, use PowerShell:
+```powershell
+Get-Content -Path 'C:\Users\Public\target.txt:adsname'
+```
+For binary files:
+```powershell
+[System.IO.File]::ReadAllBytes('C:\Users\Public\target.txt:adsname')
+```
+Or download the ADS using EvilCTF by specifying the full ADS path in the fileops menu.
+
+> **Note:** The base file (e.g., `target.txt`) must exist before uploading to its ADS.
+
 
 Basic authentication:  
 ```bash
