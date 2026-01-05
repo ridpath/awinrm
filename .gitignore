@@ -8,3 +8,7 @@
 /.vscode/
 /loot/
 /profiles/*.yaml
+
+# Ignore all files in tools/ but keep the directory
+/tools/*
+!/tools/.gitkeep
