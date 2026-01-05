@@ -1,3 +1,4 @@
+
 # lib/evil_ctf/session.rb
 require_relative 'shell_wrapper'
 require_relative 'banner'
@@ -5,6 +6,7 @@ require_relative 'tools'
 require_relative 'uploader' # loads EvilCTF::Uploader
 require_relative 'enums'
 require_relative 'sql_enum'
+require_relative 'connection'
 require 'readline'
 require 'timeout'
 require 'evil_ctf/uploader'
@@ -38,36 +40,22 @@ module EvilCTF::Session
     EvilCTF::ShellWrapper.socksify!(session_options[:proxy]) if session_options[:proxy]
     puts "[*] Testing connection to #{orig_ip} (using #{host} in endpoint...)"
 
-    # Connection creation
-    # Propagate debug flag into WinRM connection options
-    conn = if session_options[:kerberos]
-      WinRM::Connection.new(
-        endpoint: endpoint,
-        user: session_options[:user],
-        password: '',
-        transport: :kerberos,
-        realm: session_options[:realm],
-        keytab: session_options[:keytab],
-        no_ssl_peer_verification: true,
-        debug: session_options[:debug]
-      )
-    elsif session_options[:hash]
-      WinRM::Connection.new(
-        endpoint: endpoint,
-        user: session_options[:user],
-        password: '',
-        transport: :negotiate,
-        no_ssl_peer_verification: true,
-        debug: session_options[:debug]
-      )
-    else
-      WinRM::Connection.new(
-        endpoint: endpoint,
-        user: session_options[:user],
-        password: session_options[:password],
-        no_ssl_peer_verification: true,
-        debug: session_options[:debug]
-      )
+    # Centralized connection creation
+    conn = EvilCTF::Connection.build_full(
+      endpoint: endpoint,
+      user: session_options[:user],
+      password: session_options[:password],
+      hash: session_options[:hash],
+      kerberos: session_options[:kerberos],
+      realm: session_options[:realm],
+      keytab: session_options[:keytab],
+      ssl: session_options[:ssl],
+      debug: session_options[:debug],
+      transport: session_options[:transport]
+    )
+    unless conn
+      puts "[!] ERROR - Could not create WinRM connection. Check your options and try again."
+      return false
     end
 
     shell = nil

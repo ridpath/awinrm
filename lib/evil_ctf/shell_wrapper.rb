@@ -22,23 +22,16 @@ module EvilCTF
 
     # ---------- Connection test ----------
     def self.test_connection(endpoint, user, pass, hash: nil, ssl: false)
-      conn = if hash
-        WinRM::Connection.new(
-          endpoint: endpoint,
-          user: user,
-          password: '',
-          transport: :negotiate,
-          no_ssl_peer_verification: true,
-          debug: false
-        )
-      else
-        WinRM::Connection.new(
-          endpoint: endpoint,
-          user: user,
-          password: pass,
-          no_ssl_peer_verification: true,
-          debug: false
-        )
+      conn = EvilCTF::Connection.build_full(
+        endpoint: endpoint,
+        user: user,
+        password: pass,
+        hash: hash,
+        ssl: ssl
+      )
+      unless conn
+        puts "[!] WARNING - Could not create WinRM connection for test."
+        return false
       end
 
       begin
@@ -103,36 +96,13 @@ module EvilCTF
 
     # ---------- Create connection ----------
     def self.create_connection(endpoint, user, pass, hash: nil, ssl: false)
-      options = {
-        no_ssl_peer_verification: true,
-        debug: false
-      }
-
-      if hash
-        WinRM::Connection.new(
-          endpoint: endpoint,
-          user: user,
-          password: '',
-          transport: :negotiate,
-          **options
-        )
-      else
-        WinRM::Connection.new(
-          endpoint: endpoint,
-          user: user,
-          password: pass,
-          **options
-        )
-      end
-    rescue => e
-      puts "[!] WARNING - Failed to create connection to #{endpoint}"
-      puts " Error details: #{e.message}"
-      puts " This may indicate:"
-      puts " - Network connectivity issues"
-      puts " - Firewall blocking the connection"
-      puts " - Incorrect credentials or authentication method"
-      puts " - WinRM service not running on target system"
-      nil
+      EvilCTF::Connection.build_full(
+        endpoint: endpoint,
+        user: user,
+        password: pass,
+        hash: hash,
+        ssl: ssl
+      )
     end
 
     # ---------- Exit handling ----------
