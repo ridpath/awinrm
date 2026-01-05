@@ -26,8 +26,14 @@ module EvilCTF::Session
     session_options[:reconnect_attempts] = session_options[:reconnect_attempts].to_i
 
     orig_ip = session_options[:ip]
-    host = session_options[:ip].match?(/:/) ? 'ipv6addr' : normalize_host(orig_ip)
-    add_ipv6_to_hosts(session_options[:ip].split('%')[0]) if session_options[:ip].match?(/:/)
+    if orig_ip.match?(/:/)
+      # Remove zone index if present (e.g., fd00::1%eth0)
+      ipv6_addr = orig_ip.split('%')[0]
+      host = "[#{ipv6_addr}]"
+      add_ipv6_to_hosts(ipv6_addr)
+    else
+      host = normalize_host(orig_ip)
+    end
 
     # Ensure port is set to WinRM default if missing or invalid
     if !session_options[:port] || session_options[:port].to_s.strip == '' || session_options[:port].to_i == 0
@@ -629,10 +635,23 @@ module EvilCTF::Session
     end
   end
 
-  def self.add_ipv6_to_hosts(ip)
-    # Stubbed for safety — implement if you need to manipulate /etc/hosts
-    # e.g., ensure bracketed IPv6 formatting or friendly name mapping
-    # No-op by default to avoid side effects in Kali VMs
+  # ------------------------------------------------------------------
+  # Add IPv6 and hostname mapping to /etc/hosts
+  # ------------------------------------------------------------------
+  def self.add_ipv6_to_hosts(ip, hostname)
+    hosts_file = '/etc/hosts'
+    entry = "#{ip} #{hostname}"
+    # Check if already present
+    if File.readlines(hosts_file).any? { |line| line.strip == entry }
+      puts "[+] /etc/hosts already contains: #{entry}"
+      return
+    end
+    # Backup hosts file
+    backup = hosts_file + ".evilctf.bak"
+    FileUtils.cp(hosts_file, backup) unless File.exist?(backup)
+    # Append entry
+    File.open(hosts_file, 'a') { |f| f.puts entry }
+    puts "[+] /etc/hosts updated: #{entry}"
   end
 
   def self.setup_autocomplete(history)

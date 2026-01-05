@@ -15,11 +15,16 @@ module EvilCTF
         webhook: nil, logfile: nil, proxy: nil, profile: nil,
         list_tools: false, enum: nil, fresh: false, hosts: nil,
         kerberos: false, realm: nil, keytab: nil,
-        banner_mode: :minimal, debug: false
+        banner_mode: :minimal, debug: false,
+        ipv6: nil, ipv6_hostname: nil
       }
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: evil-ctf.rb [options]'
         opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }
+        opts.on('--ipv6 IP HOSTNAME', Array, 'Add IPv6 address and hostname to /etc/hosts') do |v|
+          options[:ipv6] = v[0]
+          options[:ipv6_hostname] = v[1]
+        end
         opts.on('-u', '--username USERNAME', 'Username')                 { |v| options[:username] = v }
         opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
         opts.on('-H', '--hash HASH', 'NTLM hash')                        { |v| options[:hash] = v }
@@ -55,6 +60,14 @@ module EvilCTF
       end
 
       parser.parse!(argv)
+
+      # If --ipv6 is provided, add mapping to /etc/hosts and exit
+      if options[:ipv6] && options[:ipv6_hostname]
+        require_relative 'session'
+        EvilCTF::Session.add_ipv6_to_hosts(options[:ipv6], options[:ipv6_hostname])
+        puts "[+] Added IPv6 mapping: #{options[:ipv6]} #{options[:ipv6_hostname]} to /etc/hosts (if not present)"
+        exit 0
+      end
 
       # Profile loading: merge profile if --profile is given
 

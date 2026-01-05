@@ -1,3 +1,41 @@
+---
+## IPv6 Setup and Usage
+
+AWINRM supports direct connections to Windows hosts over IPv6. For reliable IPv6 connectivity, follow these steps:
+
+### 1. Map IPv6 Address to Hostname
+On your Linux system, add the IPv6 address and desired hostname to `/etc/hosts` using the built-in CLI option:
+
+```bash
+sudo ruby evil-ctf.rb --ipv6 <IPv6_address>,<hostname>
+# Example:
+sudo ruby evil-ctf.rb --ipv6 fd00:1234:5678::10,Old-W10
+```
+This will append a line to `/etc/hosts` mapping the IPv6 address to the hostname (with backup and idempotency).
+
+### 2. Connect Using the Hostname
+After mapping, connect to the target using the hostname:
+
+```bash
+ruby evil-ctf.rb -i Old-W10 -u <username> -p <password>
+```
+AWINRM will resolve the hostname to the IPv6 address and connect over IPv6 if the target is listening.
+
+### 3. Verifying IPv6 Connection
+- On the Windows target, run:
+    - `netstat -an | findstr 5985` or
+    - `Get-NetTCPConnection | Where-Object { $_.LocalPort -eq 5985 }`
+    and look for connections from your Linux IPv6 address.
+- On Linux, run:
+    - `ss -6 dst <IPv6_address>`
+    - `netstat -an | grep <IPv6_address>`
+    during the connection attempt.
+
+### Notes
+- If you use a zone index (e.g., `fd00:1234:5678::10%enp130s0`), only the address part is mapped in `/etc/hosts`.
+- You can repeat the mapping for multiple hosts as needed.
+
+---
 <!--
 AWINRM, WinRM hacking, Evil-WinRM alternative, Windows remote management exploitation,
 Active Directory post-exploitation automation, AMSI bypass tool, ETW bypass winrm,
