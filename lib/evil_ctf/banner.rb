@@ -174,38 +174,43 @@ module EvilCTF::Banner
       ps = <<~POWERSHELL
         $flag_locations = @(
           "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt",
-          "C:\\Users\\*\\Desktop\\flag.txt",
-          "C:\\Users\\*\\Documents\\flag.txt", 
-          "C:\\Users\\*\\Downloads\\flag.txt",
-          "C:\\Users\\*\\user.txt",
-          "C:\\Users\\*\\root.txt"
+          "C:\\Users\\*\\Desktop\\*flag*", "C:\\Users\\*\\Desktop\\*.txt",
+          "C:\\Users\\*\\Documents\\*flag*", "C:\\Users\\*\\Downloads\\*flag*",
+          "C:\\Users\\*\\Desktop\\*", "C:\\Users\\*\\Documents\\*", "C:\\Users\\*\\Downloads\\*",
+          "C:\\Users\\*\\*"
         )
-        
+        $flag_patterns = @('flag\{.*?\}', 'CTF\{.*?\}', 'HTB\{.*?\}')
         foreach ($pattern in $flag_locations) {
-          if ($pattern -like "*\\*\\*") {
-            Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object {
-              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+            if ($_.Name -ieq 'flag.txt' -or $_.Name -ieq 'user.txt' -or $_.Name -ieq 'root.txt') {
               if ($content -and $content.Trim()) {
                 Write-Output "FLAGFOUND|||$($_.FullName)|||$content"
               }
-            }
-          } else {
-            if (Test-Path $pattern) {
-              $content = Get-Content $pattern -Raw -ErrorAction SilentlyContinue
-              if ($content -and $content.Trim()) {
-                Write-Output "FLAGFOUND|||$pattern|||$content"
+            } else {
+              foreach ($regex in $flag_patterns) {
+                if ($content -match $regex) {
+                  $matches = [regex]::Matches($content, $regex)
+                  foreach ($m in $matches) {
+                    Write-Output "FLAGFOUND|||$($_.FullName)|||$($m.Value)"
+                  }
+                }
               }
             }
           }
         }
       POWERSHELL
-
       result = shell.run(ps)
+      require 'set'
       flags_found = false
+      seen = Set.new
       result.output.each_line do |line|
         next unless line.include?("FLAGFOUND|||")
-        flags_found = true
         path, value = line.strip.split("|||", 3)[1..2]
+        key = "#{path}|||#{value.strip}"
+        next if seen.include?(key)
+        seen << key
+        flags_found = true
         puts "  [!] FLAG: #{path}".red
         puts "      #{value.strip}".yellow
       end
