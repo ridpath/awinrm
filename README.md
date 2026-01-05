@@ -1,5 +1,7 @@
 ---
-## IPv6 Setup and Usage
+---
+
+## Advanced Usage: IPv6 Connections
 
 AWINRM supports direct connections to Windows hosts over IPv6. For reliable IPv6 connectivity, follow these steps:
 
