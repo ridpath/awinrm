@@ -12,3 +12,6 @@
 # Ignore all files in tools/ but keep the directory
 /tools/*
 !/tools/.gitkeep
+
+# Ignore test/spec files
+/spec/
