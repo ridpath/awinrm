@@ -30,6 +30,11 @@ module EvilCTF
         no_ssl_peer_verification: true,
         debug: !!debug
       }
+      # Inject custom User-Agent if provided
+      if opts[:user_agent]
+        options[:http_client] = WinRM::HTTP::HttpTransport.new(endpoint, {})
+        options[:http_client].instance_variable_get(:@httpcli).default_header['User-Agent'] = opts[:user_agent]
+      end
 
       begin
         conn = if kerberos
