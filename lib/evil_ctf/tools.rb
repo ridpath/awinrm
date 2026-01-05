@@ -1,3 +1,16 @@
+    'runascs' => {
+      name: 'RunasCs',
+      filename: 'RunasCs.exe',
+      search_patterns: ['RunasCs.exe', 'RunasCs*.exe'],
+      description: 'C# RunAs implementation for user impersonation and UAC bypass',
+      url: 'https://github.com/antonioCoco/RunasCs',
+      download_url: 'https://github.com/antonioCoco/RunasCs/releases/latest/download/RunasCs.exe',
+      backup_urls: [],
+      zip: false,
+      recommended_remote: 'C:\\Users\\Public\\RunasCs.exe',
+      auto_execute: false,
+      category: 'privilege'
+    },
 module EvilCTF
   module Tools
     # Safely escape single quotes for PowerShell single-quoted strings
