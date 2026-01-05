@@ -1,0 +1,46 @@
+# EvilCTF Profile Template
+# Copy this file to profiles/<yourprofilename>.yaml or add to config/profiles.yaml
+# All options can be set here and will be merged with CLI options.
+
+example_profile:
+  # Connection settings
+  ip: "<TARGET_IP>"              # Target IP or hostname
+  port: 5985                      # WinRM port (5985 for HTTP, 5986 for HTTPS)
+  ssl: false                      # Use SSL (true/false)
+  user: "<USERNAME>"              # Username (can also use 'username')
+  password: "<PASSWORD>"           # Password
+  hash: "<NTLM_HASH>"              # NTLM hash (optional)
+
+  # Advanced authentication
+  kerberos: false                # Use Kerberos authentication (true/false)
+  realm: "EXAMPLE.COM"          # Kerberos realm (if using Kerberos)
+  keytab: "/path/to/keytab"     # Kerberos keytab file (if using Kerberos)
+
+  # Proxy and network
+  proxy: "127.0.0.1:1080"       # SOCKS proxy (optional)
+
+  # Session and logging
+  logfile: "log/session.log"     # Log file for command output (optional)
+  log_session: true              # Enable session logging to disk (log/ directory)
+  debug: false                   # Enable WinRM debug output
+
+  # Tooling and automation
+  auto_exec: false               # Auto execute staged tools (true/false)
+  stealth: false                 # Use ADS staging and random filenames (true/false)
+  random_names: false            # Randomize filenames (true/false)
+  auto_evasion: false            # Auto-disable Defender (true/false)
+  beacon: false                  # Add sleep delay between commands (true/false)
+  webhook: "https://webhook.example.com/loot" # Loot webhook URL (optional)
+  enum: "basic"                  # Run enumeration preset (basic, deep, etc.)
+  fresh: false                   # Bypass enum cache (true/false)
+
+  # User experience
+  banner_mode: "expanded"        # Banner mode (minimal|expanded)
+  user_agent: "MyCustomAgent"    # Custom User-Agent for WinRM HTTP requests
+
+  # Multi-host (optional)
+  hosts: "hosts.txt"             # File with multiple hosts (one per line)
+
+# To use this profile:
+#   ./bin/evil-ctf.rb --profile example_profile
+# Or add multiple profiles in config/profiles.yaml and select with --profile
