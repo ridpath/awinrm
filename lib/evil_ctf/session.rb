@@ -26,6 +26,12 @@ module EvilCTF::Session
     orig_ip = session_options[:ip]
     host = session_options[:ip].match?(/:/) ? 'ipv6addr' : normalize_host(orig_ip)
     add_ipv6_to_hosts(session_options[:ip].split('%')[0]) if session_options[:ip].match?(/:/)
+
+    # Ensure port is set to WinRM default if missing or invalid
+    if !session_options[:port] || session_options[:port].to_s.strip == '' || session_options[:port].to_i == 0
+      session_options[:port] = session_options[:ssl] ? 5986 : 5985
+    end
+
     scheme = session_options[:ssl] ? 'https' : 'http'
     endpoint = "#{scheme}://#{host}:#{session_options[:port]}/wsman"
     session_options[:endpoint] = endpoint

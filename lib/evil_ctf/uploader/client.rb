@@ -5,6 +5,7 @@ require 'digest'
 require_relative '../tools/crypto'
 require_relative '../shell_adapter'
 require_relative '../logger'
+require_relative '../errors'
 
 module EvilCTF
   module Uploader
@@ -12,13 +13,12 @@ module EvilCTF
       DEFAULT_CHUNK_SIZE = 64 * 1024
 
       def initialize(shell_or_adapter, logger = nil)
-        # Accept either a raw shell/connection or an adapter; wrap to a consistent interface
         @shell_adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
         @logger = logger || EvilCTF::Logger.new(nil) rescue nil
       end
 
       def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: false, xor_key: nil)
-        return false unless File.exist?(local_path)
+        raise ::EvilCTF::Errors::UploadError, 'local file missing' unless File.exist?(local_path)
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
@@ -35,12 +35,11 @@ module EvilCTF
         PS
         @shell_adapter.run(ps_mkdir)
 
-        # Use a temporary remote file and move into place atomically after upload
         tmp_token = Time.now.to_i.to_s + rand(9999).to_s
         tmp_remote = remote_path + ".part_#{tmp_token}"
         escaped_tmp = tmp_remote.gsub("'", "''")
 
-        # Prefer WinRM::FS upload if available for performance and reliability
+        # Use WinRM::FS if available
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
         if fm && fm.respond_to?(:upload)
           begin
@@ -70,12 +69,11 @@ module EvilCTF
             end
             return true
           rescue => e
-            @logger&.warn("[Uploader] WinRM::FS upload failed, falling back to chunked upload: #{e.message}")
-            # fallthrough to legacy chunked upload
+            @logger&.warn("[Uploader] WinRM::FS upload failed, falling back: #{e.message}")
           end
         end
 
-        # Initialize tmp remote file
+        # Fallback: chunked upload
         ps_init = <<~PS
           try {
             $path = '#{escaped_tmp}'
@@ -88,90 +86,79 @@ module EvilCTF
           }
         PS
         init = @shell_adapter.run(ps_init)
-        return false unless init && init.output.to_s.include?('INIT')
+        unless init && init.output.to_s.include?('INIT')
+          @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}")
+          raise ::EvilCTF::Errors::UploadError, 'Failed to initialize remote tmp file'
+        end
 
-        # Chunked upload with resume and per-chunk sanity checks
-        File.open(local_path, 'rb') do |f|
-          escaped_tmp_q = tmp_remote.gsub("'", "''")
-          # Check for existing tmp file to resume
-          ps_exists = "Test-Path '#{escaped_tmp_q}'"
-          exist_res = @shell_adapter.run(ps_exists)
-          offset = 0
-          if exist_res && exist_res.output.to_s.strip == 'True'
-            ps_len = "(Get-Item -Path '#{escaped_tmp_q}' -ErrorAction SilentlyContinue).Length"
-            len_res = @shell_adapter.run(ps_len)
-            offset = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
-            @logger&.info("[Uploader] Resuming upload at offset #{offset}") if offset && offset > 0
-            f.seek(offset)
-          else
-            # create empty tmp file
-            ps_init = <<~PS
-              try {
-                $path = '#{escaped_tmp_q}'
-                if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
-                $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Create)
-                $fs.Close()
-                "INIT"
-              } catch {
-                "ERROR: $($_.Exception.Message)"
-              }
-            PS
-            init = @shell_adapter.run(ps_init)
-            return false unless init && init.output.to_s.include?('INIT')
-          end
-
-          idx = (offset / chunk_size)
-          bytes_sent = offset
-          while (buf = f.read(chunk_size))
-            payload = if xor_key
-                        EvilCTF::Tools::Crypto.xor_crypt(buf, xor_key)
-                      elsif encrypt
-                        EvilCTF::Tools::Crypto.xor_crypt(buf, 0x42)
-                      else
-                        buf
-                      end
-            b64 = Base64.strict_encode64(payload)
-            escaped_remote = tmp_remote.gsub("'", "''")
-            ps = <<~PS
-              try {
-                $b64 = @'
-#{b64}
-'@
-                $bytes = [Convert]::FromBase64String($b64)
-                $path = '#{escaped_remote}'
-                $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
-                $fs.Write($bytes, 0, $bytes.Length)
-                $fs.Close()
-                "CHUNK #{idx}"
-              } catch {
-                "ERROR: $($_.Exception.Message)"
-              }
-            PS
-            res = @shell_adapter.run(ps)
-            unless res && res.output.to_s.include?("CHUNK #{idx}")
-              @logger&.error("[Uploader] Chunk #{idx} failed to write")
-              return false
+        begin
+          File.open(local_path, 'rb') do |f|
+            escaped_tmp_q = tmp_remote.gsub("'", "''")
+            ps_exists = "Test-Path '#{escaped_tmp_q}'"
+            exist_res = @shell_adapter.run(ps_exists)
+            offset = 0
+            if exist_res && exist_res.output.to_s.strip == 'True'
+              ps_len = "(Get-Item -Path '#{escaped_tmp_q}' -ErrorAction SilentlyContinue).Length"
+              len_res = @shell_adapter.run(ps_len)
+              offset = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+              @logger&.info("[Uploader] Resuming upload at offset #{offset}") if offset && offset > 0
+              f.seek(offset)
             end
 
-            # Sanity check: verify remote tmp length increased appropriately
-            bytes_sent += buf.bytesize
-            ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
-            len_res = @shell_adapter.run(ps_len_check)
-            remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
-            if remote_len < bytes_sent
-              @logger&.warn("[Uploader] Remote tmp length (#{remote_len}) less than expected (#{bytes_sent}), retrying chunk #{idx}")
-              # Simple retry once
-              res_retry = @shell_adapter.run(ps)
+            idx = (offset / chunk_size)
+            bytes_sent = offset
+            while (buf = f.read(chunk_size))
+              payload = if xor_key
+                          EvilCTF::Tools::Crypto.xor_crypt(buf, xor_key)
+                        elsif encrypt
+                          EvilCTF::Tools::Crypto.xor_crypt(buf, 0x42)
+                        else
+                          buf
+                        end
+              b64 = Base64.strict_encode64(payload)
+              escaped_remote = tmp_remote.gsub("'", "''")
+              ps = <<~PS
+                try {
+                  $b64 = @'
+#{b64}
+'@
+                  $bytes = [Convert]::FromBase64String($b64)
+                  $path = '#{escaped_remote}'
+                  $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+                  $fs.Write($bytes, 0, $bytes.Length)
+                  $fs.Close()
+                  "CHUNK #{idx}"
+                } catch {
+                  "ERROR: $($_.Exception.Message)"
+                }
+              PS
+              res = @shell_adapter.run(ps)
+              unless res && res.output.to_s.include?("CHUNK #{idx}")
+                @logger&.error("[Uploader] Chunk #{idx} failed to write")
+                raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed to write"
+              end
+
+              bytes_sent += buf.bytesize
+              ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
               len_res = @shell_adapter.run(ps_len_check)
               remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
               if remote_len < bytes_sent
-                @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting")
-                return false
+                @logger&.warn("[Uploader] Remote tmp length (#{remote_len}) less than expected (#{bytes_sent}), retrying chunk #{idx}")
+                res_retry = @shell_adapter.run(ps)
+                len_res = @shell_adapter.run(ps_len_check)
+                remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+                if remote_len < bytes_sent
+                  @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting")
+                  raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed after retry"
+                end
               end
-            end
 
-            idx += 1
+              idx += 1
+            end
           end
+        rescue => e
+          @logger&.error("[Uploader] Upload failed during chunked transfer: #{e.class}: #{e.message}")
+          raise ::EvilCTF::Errors::UploadError, e.message
         end
 
         # Compute hash of tmp remote file
@@ -187,14 +174,13 @@ module EvilCTF
           end
         end
 
-        # Ensure final does not exist, then move temp file into place atomically (or try copy as fallback)
+        # Move temp into place
         escaped_final = remote_path.gsub("'", "''")
         ps_rm_final = <<~PS
           try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
         PS
         @shell_adapter.run(ps_rm_final)
-        
-        # Move temp file into place
+
         ps_move = <<~PS
           try {
             Move-Item -Path '#{escaped_tmp}' -Destination '#{escaped_final}' -Force
@@ -204,7 +190,6 @@ module EvilCTF
           }
         PS
         move_res = @shell_adapter.run(ps_move)
-        # If move failed, try Copy-Item fallback
         if move_res && move_res.output.to_s.start_with?('ERROR')
           ps_copy = <<~PS
             try {
@@ -231,77 +216,122 @@ module EvilCTF
         end
 
         true
-      rescue => e
-        warn "[!] Upload failed: #{e.class}: #{e.message}"
-        false
       end
 
       def download_file(remote_path, local_path, xor_key: nil, allow_empty: true)
-        # Verify remote exists
         exist = @shell_adapter.run("Test-Path '#{remote_path.gsub("'", "''")}'")
-        return false unless exist && exist.output.to_s.strip == 'True'
+        unless exist && exist.output.to_s.strip == 'True'
+          @logger&.error("[Downloader] Remote path not found: #{remote_path}")
+          raise ::EvilCTF::Errors::DownloadError, 'Remote path not found'
+        end
 
-        ps_read = <<~PS
-          try {
-            $path = '#{remote_path.gsub("'", "''")}'
-            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
-            $b64 | Out-String -Width 9999999
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-
-        # Prefer WinRM::FS file manager if available for efficient binary transfer
+        # Prefer WinRM::FS
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
         if fm
-          # Use WinRM::FS to download directly
           begin
+            @logger&.info("[Downloader] Using WinRM::FS to download #{remote_path} -> #{local_path}")
             tmp_local = local_path + ".winrmfs.tmp"
-            fm.read(remote_path, tmp_local)
+            if fm.respond_to?(:download)
+              fm.download(remote_path, tmp_local)
+            elsif fm.respond_to?(:read)
+              fm.read(remote_path, tmp_local)
+            else
+              raise 'WinRM::FS file manager does not implement download/read'
+            end
+            FileUtils.mkdir_p(File.dirname(local_path))
             FileUtils.mv(tmp_local, local_path)
+            @logger&.info("[Downloader] Download complete: #{local_path}")
             return true
           rescue => e
-            # fallback to legacy method
-            warn "[!] WinRM::FS download failed, falling back: #{e.message}"
+            @logger&.warn("[Downloader] WinRM::FS download failed, falling back: #{e.message}")
           end
         end
 
-        result = @shell_adapter.run(ps_read)
-        return false if result.nil? || result.output.nil?
-        raw = result.output.to_s
-
-        # Extract candidate base64 blocks
-        candidates = raw.scan(/[A-Za-z0-9+\/=\s]{32,}/m).map { |s| s.gsub(/\s+/, '') }
-        candidates << raw.gsub(/[^A-Za-z0-9+\/=]/, '')
-        b64 = candidates.max_by(&:length).to_s
-        return false if b64.empty?
-
-        data = nil
-        begin
-          data = Base64.strict_decode64(b64)
-        rescue
-          begin
-            data = Base64.decode64(b64)
-          rescue
-            # Try sanitizing non-base64 chars and decode again
-            cleaned = b64.gsub(/[^A-Za-z0-9+\/=]/, '')
-            begin
-              data = Base64.decode64(cleaned)
-            rescue => e
-              warn "[!] Invalid base64 from remote after sanitize: #{e.message}"
-              return false
-            end
-          end
-        end
-
-        data = EvilCTF::Tools::Crypto.xor_crypt(data, xor_key) if xor_key
+        # Chunked, resume-capable binary download using PowerShell FileStream
+        chunk_size = DEFAULT_CHUNK_SIZE
+        tmp_local = local_path + '.part'
         FileUtils.mkdir_p(File.dirname(local_path))
-        File.open(local_path, 'wb') { |f| f.write(data) }
+
+        offset = File.exist?(tmp_local) ? File.size(tmp_local) : 0
+        @logger&.info("[Downloader] Starting chunked download: offset=#{offset} chunk_size=#{chunk_size}")
+
+        loop do
+          ps_chunk = <<~PS
+            try {
+              $path = '#{remote_path.gsub("'", "''")}'
+              $fs = [System.IO.File]::OpenRead($path)
+              $fs.Seek(#{offset}, 'Begin') | Out-Null
+              $buf = New-Object byte[] #{chunk_size}
+              $read = $fs.Read($buf, 0, $buf.Length)
+              if ($read -gt 0) {
+                if ($read -lt $buf.Length) {
+                  $b = $buf[0..($read - 1)]
+                  [Convert]::ToBase64String($b)
+                } else {
+                  [Convert]::ToBase64String($buf)
+                }
+              } else { "" }
+              $fs.Close()
+            } catch {
+              "ERROR: $($_.Exception.Message)"
+            }
+          PS
+
+          res = @shell_adapter.run(ps_chunk)
+          if res.nil? || res.output.nil?
+            @logger&.error('[Downloader] Empty response during chunk read')
+            raise ::EvilCTF::Errors::DownloadError, 'Empty response during chunk read'
+          end
+
+          raw = res.output.to_s
+          # Extract base64 payload
+          b64 = raw.scan(/[A-Za-z0-9+\/=\s]{4,}/m).map { |s| s.gsub(/\s+/, '') }.max_by(&:length).to_s
+
+          if b64.empty?
+            # No more data
+            @logger&.info('[Downloader] No more data from remote; finishing')
+            break
+          end
+
+          begin
+            chunk = Base64.strict_decode64(b64)
+          rescue
+            chunk = Base64.decode64(b64) rescue nil
+          end
+
+          if chunk.nil? || chunk.empty?
+            @logger&.error('[Downloader] Failed to decode chunk from remote')
+            raise ::EvilCTF::Errors::DownloadError, 'Failed to decode chunk'
+          end
+
+          # Apply XOR if needed
+          chunk = EvilCTF::Tools::Crypto.xor_crypt(chunk, xor_key) if xor_key
+
+          # Append to tmp file
+          File.open(tmp_local, 'ab') { |f| f.write(chunk) }
+          offset += chunk.bytesize
+          @logger&.info("[Downloader] Wrote chunk, new offset=#{offset}")
+
+          # If chunk was smaller than requested, we've reached EOF
+          break if chunk.bytesize < chunk_size
+        end
+
+        # Final checks
+        if File.exist?(tmp_local) && File.size(tmp_local) == 0 && !allow_empty
+          @logger&.error('[Downloader] Remote file empty and empty files not allowed')
+          raise ::EvilCTF::Errors::DownloadError, 'Remote file empty'
+        end
+
+        FileUtils.mv(tmp_local, local_path)
+        @logger&.info("[Downloader] Download complete: #{local_path}")
         true
+      rescue ::EvilCTF::Errors::DownloadError
+        raise
       rescue => e
-        warn "[!] Download failed: #{e.class}: #{e.message}"
-        false
+        @logger&.error("[Downloader] Download failed: #{e.class}: #{e.message}")
+        raise ::EvilCTF::Errors::DownloadError, e.message
       end
     end
   end
 end
+

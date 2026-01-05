@@ -12,3 +12,9 @@ gem 'gssapi', '~> 1.3'
 
 # Bundler itself
 gem 'bundler', '>= 2.4', '< 3.0'
+
+# Test/dev
+group :test do
+	gem 'rspec', '~> 3.12'
+	gem 'mocha', '~> 1.15'
+end
