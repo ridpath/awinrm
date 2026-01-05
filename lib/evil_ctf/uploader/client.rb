@@ -17,6 +17,7 @@ module EvilCTF
         @logger = logger || EvilCTF::Logger.new(nil) rescue nil
       end
 
+
       def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: false, xor_key: nil)
         raise ::EvilCTF::Errors::UploadError, 'local file missing' unless File.exist?(local_path)
 
@@ -30,6 +31,65 @@ module EvilCTF
           remote_path
         end
 
+        # Detect if this is an ADS upload (C:\path\file.txt:adsname)
+        is_ads = !!(final_remote_path =~ /:[^\\\/]+$/)
+
+        if is_ads
+          # --- ADS upload logic using Add-Content -Encoding Byte ---
+          ads_path = final_remote_path.gsub("'", "''")
+          begin
+            File.open(local_path, 'rb') do |f|
+              idx = 0
+              while (buf = f.read(chunk_size))
+                payload = if xor_key
+                            EvilCTF::Tools::Crypto.xor_crypt(buf, xor_key)
+                          elsif encrypt
+                            EvilCTF::Tools::Crypto.xor_crypt(buf, 0x42)
+                          else
+                            buf
+                          end
+                b64 = Base64.strict_encode64(payload)
+                ps = <<~PS
+                  try {
+                    $b64 = @'
+#{b64}
+'@
+                    $bytes = [Convert]::FromBase64String($b64)
+                    Add-Content -Path '#{ads_path}' -Value $bytes -Encoding Byte
+                    "ADS_CHUNK #{idx}"
+                  } catch {
+                    "ERROR: $($_.Exception.Message)"
+                  }
+                PS
+                res = @shell_adapter.run(ps)
+                unless res && res.output.to_s.include?("ADS_CHUNK #{idx}")
+                  @logger&.error("[Uploader] ADS chunk #{idx} failed to write")
+                  raise ::EvilCTF::Errors::UploadError, "ADS chunk #{idx} failed to write"
+                end
+                idx += 1
+              end
+            end
+            # Optionally verify by reading back the ADS length
+            if verify
+              ps_len = <<~PS
+                try {
+                  $ads = '#{ads_path}'
+                  (Get-Item -Path $ads -ErrorAction SilentlyContinue).Length
+                } catch { "ERROR: $($_.Exception.Message)" }
+              PS
+              len_res = @shell_adapter.run(ps_len)
+              remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : nil
+              local_len = File.size(local_path)
+              return { ok: remote_len == local_len, local_len: local_len, remote_len: remote_len }
+            end
+            return true
+          rescue => e
+            @logger&.error("[Uploader] ADS upload failed: #{e.class}: #{e.message}")
+            raise ::EvilCTF::Errors::UploadError, e.message
+          end
+        end
+
+        # --- Standard file upload logic (unchanged) ---
         # Ensure remote directory exists
         remote_dir = File.dirname(final_remote_path).gsub('\\', '\\\\')
         ps_mkdir = <<~PS
