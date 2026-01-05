@@ -105,6 +105,7 @@ options = {
 options[:debug] = false
 
 OptionParser.new do |opts|
+    opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
   opts.banner = 'Usage: evil-ctf.rb [options]'
 
   opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }

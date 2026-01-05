@@ -51,7 +51,8 @@ module EvilCTF::Session
       keytab: session_options[:keytab],
       ssl: session_options[:ssl],
       debug: session_options[:debug],
-      transport: session_options[:transport]
+      transport: session_options[:transport],
+      user_agent: session_options[:user_agent]
     )
     unless conn
       puts "[!] ERROR - Could not create WinRM connection. Check your options and try again."
