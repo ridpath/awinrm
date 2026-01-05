@@ -1,6 +1,7 @@
 # lib/evil_ctf/enums.rb
 require_relative 'sql_enum'
 module EvilCTF::Enums
+  require 'colorize'
   def self.presets
     {
       'basic' => ->(shell, _) { run_enumeration(shell, type: 'basic') },
@@ -18,18 +19,18 @@ module EvilCTF::Enums
     if preset
       preset.call(shell, options)
     else
-      puts "[!] Unknown enum type: #{type}"
+      puts "[!] Unknown enum type: #{type}".colorize(:yellow)
     end
   end
 
   def self.run_enumeration(shell, type: 'basic', cache: {}, fresh: false)
     if !fresh && cache[type]
-      puts "[*] Using cached enumeration for #{type}"
+      puts "[*] Using cached enumeration for #{type}".colorize(:cyan)
       puts cache[type]
       return
     end
-    
-    puts "[*] Running #{type} enumeration..."
+
+    puts "[*] Running #{type} enumeration...".colorize(:cyan)
     
     # Use a more compact approach similar to winPEAS.bat's structure
     cmds = case type
@@ -82,12 +83,12 @@ module EvilCTF::Enums
       begin
         result = shell.run(cmd)
         header = cmd.is_a?(String) ? cmd[0..80] : cmd.to_s[0..80]
-        output += "=== #{header} ===\n#{result.output}\n\n"
+        output += "=== #{header} ===\n".colorize(:light_black) + "#{result.output}\n\n"
       rescue => e
-        output += "=== Error in #{cmd[0..80]} ===\n[!] Enumeration command failed: #{e.message}\n\n"
+        output += ("=== Error in #{cmd[0..80]} ===\n".colorize(:red) + "[!] Enumeration command failed: #{e.message}\n\n".colorize(:red))
       end
     end
-    
+
     cache[type] = output
     puts output
   end
