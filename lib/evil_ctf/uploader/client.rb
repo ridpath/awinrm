@@ -22,8 +22,16 @@ module EvilCTF
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
+        # If remote_path is a directory, append the local filename
+        is_dir = remote_path.end_with?('\\') || remote_path.end_with?('/')
+        final_remote_path = if is_dir
+          File.join(remote_path, File.basename(local_path)).gsub('/', '\\')
+        else
+          remote_path
+        end
+
         # Ensure remote directory exists
-        remote_dir = File.dirname(remote_path).gsub('\\', '\\\\')
+        remote_dir = File.dirname(final_remote_path).gsub('\\', '\\\\')
         ps_mkdir = <<~PS
           try {
             $d = '#{remote_dir}'
@@ -36,7 +44,7 @@ module EvilCTF
         @shell_adapter.run(ps_mkdir)
 
         tmp_token = Time.now.to_i.to_s + rand(9999).to_s
-        tmp_remote = remote_path + ".part_#{tmp_token}"
+        tmp_remote = final_remote_path + ".part_#{tmp_token}"
         escaped_tmp = tmp_remote.gsub("'", "''")
 
         # Use WinRM::FS if available
@@ -46,7 +54,7 @@ module EvilCTF
             @logger&.info("[Uploader] Using WinRM::FS upload via adapter for #{local_path} -> #{tmp_remote}")
             fm.upload(local_path, tmp_remote)
             # move into place
-            escaped_final = remote_path.gsub("'", "''")
+            escaped_final = final_remote_path.gsub("'", "''")
             ps_rm_final = <<~PS
               try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
             PS
@@ -61,7 +69,7 @@ module EvilCTF
             PS
             @shell_adapter.run(ps_move)
             if verify
-              ps = "(Get-FileHash -Path '#{remote_path}' -Algorithm SHA256).Hash"
+              ps = "(Get-FileHash -Path '#{final_remote_path}' -Algorithm SHA256).Hash"
               res = @shell_adapter.run(ps)
               remote_raw = res && res.output ? res.output.to_s : ''
               remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
@@ -174,33 +182,42 @@ module EvilCTF
           end
         end
 
-        # Move temp into place
-        escaped_final = remote_path.gsub("'", "''")
-        ps_rm_final = <<~PS
-          try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
-        PS
-        @shell_adapter.run(ps_rm_final)
+        # Move temp into place (only if temp file exists and is not already at final path)
+        escaped_final = final_remote_path.gsub("'", "''")
+        escaped_tmp = tmp_remote.gsub("'", "''")
+        if tmp_remote != final_remote_path
+          ps_rm_final = <<~PS
+            try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
+          PS
+          @shell_adapter.run(ps_rm_final)
 
-        ps_move = <<~PS
-          try {
-            Move-Item -Path '#{escaped_tmp}' -Destination '#{escaped_final}' -Force
-            "MOVED"
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-        move_res = @shell_adapter.run(ps_move)
-        if move_res && move_res.output.to_s.start_with?('ERROR')
-          ps_copy = <<~PS
+          ps_move = <<~PS
             try {
-              Copy-Item -Path '#{escaped_tmp}' -Destination '#{escaped_final}' -Force
-              Remove-Item -Path '#{escaped_tmp}' -Force
-              "COPIED"
+              Move-Item -Path '#{escaped_tmp}' -Destination '#{escaped_final}' -Force
+              "MOVED"
             } catch {
               "ERROR: $($_.Exception.Message)"
             }
           PS
-          copy_res = @shell_adapter.run(ps_copy)
+          move_res = @shell_adapter.run(ps_move)
+          if move_res && move_res.output.to_s.start_with?('ERROR')
+            # Fallback: Copy then Remove
+            ps_copy = <<~PS
+              try {
+                Copy-Item -Path '#{escaped_tmp}' -Destination '#{escaped_final}' -Force
+                Remove-Item -Path '#{escaped_tmp}' -Force
+                "COPIED"
+              } catch {
+                "ERROR: $($_.Exception.Message)"
+              }
+            PS
+            @shell_adapter.run(ps_copy)
+          end
+          # Final cleanup: ensure .part_* file is removed if it still exists
+          ps_cleanup = <<~PS
+            try { if (Test-Path '#{escaped_tmp}') { Remove-Item -Path '#{escaped_tmp}' -Force } } catch { }
+          PS
+          @shell_adapter.run(ps_cleanup)
         end
 
         if verify
