@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run evil-ctf.rb basic session test",
+			"type": "shell",
+			"command": "ruby bin/evil-ctf.rb --help",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}
