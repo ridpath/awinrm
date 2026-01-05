@@ -13,6 +13,7 @@ module EvilCTF
         opts.on('-i', '--ip IP', 'Target IP / hostname') { |v| options[:ip] = v }
         opts.on('-u', '--username USER', 'Username') { |v| options[:user] = v }
         opts.on('-p', '--password PASS', 'Password') { |v| options[:password] = v }
+        opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
         opts.on('-h', '--help', 'Show help') { puts opts; exit 0 }
       end
 
