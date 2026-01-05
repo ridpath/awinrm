@@ -1,9 +1,9 @@
-# frozen_string_literal: true
-# Compatibility shim: require all tool submodules
-require_relative 'tools/crypto'
-
 module EvilCTF
   module Tools
+    # Safely escape single quotes for PowerShell single-quoted strings
+    def self.ps_single_quote_escape(str)
+      str.to_s.gsub("'", "''")
+    end
     # This file intentionally small: use files under lib/evil_ctf/tools/*
   end
 end

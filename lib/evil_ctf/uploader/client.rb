@@ -23,6 +23,14 @@ module EvilCTF
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
+        # Check PowerShell availability before upload
+        ps_check = "try { $PSVersionTable.PSVersion.ToString() } catch { 'NO_POWERSHELL' }"
+        check_res = @shell_adapter.run(ps_check)
+        unless check_res && check_res.output && check_res.output.to_s.strip != 'NO_POWERSHELL'
+          @logger&.error('[Uploader] PowerShell not available on target. Cannot upload file.')
+          raise ::EvilCTF::Errors::UploadError, 'PowerShell not available on target.'
+        end
+
         # If remote_path is a directory, append the local filename
         is_dir = remote_path.end_with?('\\') || remote_path.end_with?('/')
         final_remote_path = if is_dir
@@ -63,8 +71,8 @@ module EvilCTF
                 PS
                 res = @shell_adapter.run(ps)
                 unless res && res.output.to_s.include?("ADS_CHUNK #{idx}")
-                  @logger&.error("[Uploader] ADS chunk #{idx} failed to write")
-                  raise ::EvilCTF::Errors::UploadError, "ADS chunk #{idx} failed to write"
+                  @logger&.error("[Uploader] ADS chunk #{idx} failed to write. Script: #{ps.strip}\nOutput: #{res&.output}")
+                  raise ::EvilCTF::Errors::UploadError, "ADS chunk #{idx} failed to write. Output: #{res&.output}"
                 end
                 idx += 1
               end
@@ -101,7 +109,10 @@ module EvilCTF
             "ERROR: $($_.Exception.Message)"
           }
         PS
-        @shell_adapter.run(ps_mkdir)
+        mkdir_res = @shell_adapter.run(ps_mkdir)
+        unless mkdir_res && mkdir_res.output.to_s.include?('OK')
+          @logger&.error("[Uploader] Failed to create remote directory. Script: #{ps_mkdir.strip}\nOutput: #{mkdir_res&.output}")
+        end
 
         tmp_token = Time.now.to_i.to_s + rand(9999).to_s
         tmp_remote = final_remote_path + ".part_#{tmp_token}"
@@ -155,8 +166,8 @@ module EvilCTF
         PS
         init = @shell_adapter.run(ps_init)
         unless init && init.output.to_s.include?('INIT')
-          @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}")
-          raise ::EvilCTF::Errors::UploadError, 'Failed to initialize remote tmp file'
+          @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}. Script: #{ps_init.strip}\nOutput: #{init&.output}")
+          raise ::EvilCTF::Errors::UploadError, "Failed to initialize remote tmp file. Output: #{init&.output}"
         end
 
         begin
@@ -202,8 +213,8 @@ module EvilCTF
               PS
               res = @shell_adapter.run(ps)
               unless res && res.output.to_s.include?("CHUNK #{idx}")
-                @logger&.error("[Uploader] Chunk #{idx} failed to write")
-                raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed to write"
+                @logger&.error("[Uploader] Chunk #{idx} failed to write. Script: #{ps.strip}\nOutput: #{res&.output}")
+                raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed to write. Output: #{res&.output}"
               end
 
               bytes_sent += buf.bytesize
@@ -216,8 +227,8 @@ module EvilCTF
                 len_res = @shell_adapter.run(ps_len_check)
                 remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
                 if remote_len < bytes_sent
-                  @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting")
-                  raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed after retry"
+                  @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting. Script: #{ps.strip}\nOutput: #{res_retry&.output}")
+                  raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed after retry. Output: #{res_retry&.output}"
                 end
               end
 
