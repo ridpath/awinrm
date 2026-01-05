@@ -165,31 +165,37 @@ module EvilCTF::Session
 
             case input
             when /^help$/i
-              puts "\nBuiltin commands:"
-              puts ' help - This help'
-              puts ' clear - Clear screen'
-              puts ' tools - List tool registry'
-              puts ' download_missing - Download all missing tools into ./tools'
-              puts ' dump_creds - Stage mimikatz & dump logon passwords'
-              puts ' lsass_dump - Stage procdump & dump LSASS to ./loot'
-              puts ' enum [type] - Run enumeration preset (basic, deep, sql, etc.)'
-              puts ' fileops - File operations menu (upload/download/ZIP)'
-              puts ' bypass-4msi - Try AMSI bypass'
-              puts ' bypass-etw - Full ETW bypass'
-              puts ' disable_defender - Try disabling Defender real-time'
-              puts ' history - Show command history'
-              puts ' history clear - Clear history file'
-              puts ' profile save <name> - Save current options as profile'
-              puts ' get-unquotedservices - Show all unquoted service paths'
-              puts ' load_ps1 <local_ps1> - Upload and load PS1 script'
-              puts ' invoke-binary <local_bin> [args] - Upload and execute binary'
-              puts ' services - List services'
-              puts ' processes - List processes'
-              puts ' sysinfo - System info'
-              puts " __exit__/exit/quit - Exit this Evil-WinRM CTF session"
-              puts ' !sh / !bash - Spawn local shell'
-              puts "\nMacros: #{command_manager.list_macros.join(', ')}"
-              puts "Aliases: #{command_manager.list_aliases.join(', ')}"
+              require 'colorize'
+              puts "\n" + "Builtin commands:".colorize(:cyan)
+              help_cmds = [
+                ['help', 'This help'],
+                ['clear', 'Clear screen'],
+                ['tools', 'List tool registry'],
+                ['download_missing', 'Download all missing tools into ./tools'],
+                ['dump_creds', 'Stage mimikatz & dump logon passwords'],
+                ['lsass_dump', 'Stage procdump & dump LSASS to ./loot'],
+                ['enum [type]', 'Run enumeration preset (basic, deep, sql, etc.)'],
+                ['fileops', 'File operations menu (upload/download/ZIP)'],
+                ['bypass-4msi', 'Try AMSI bypass'],
+                ['bypass-etw', 'Full ETW bypass'],
+                ['disable_defender', 'Try disabling Defender real-time'],
+                ['history', 'Show command history'],
+                ['history clear', 'Clear history file'],
+                ['profile save <name>', 'Save current options as profile'],
+                ['get-unquotedservices', 'Show all unquoted service paths'],
+                ['load_ps1 <local_ps1>', 'Upload and load PS1 script'],
+                ['invoke-binary <local_bin> [args]', 'Upload and execute binary'],
+                ['services', 'List services'],
+                ['processes', 'List processes'],
+                ['sysinfo', 'System info'],
+                ['__exit__/exit/quit', 'Exit this Evil-WinRM CTF session'],
+                ['!sh / !bash', 'Spawn local shell']
+              ]
+              help_cmds.each do |cmd, desc|
+                puts "  ".colorize(:light_black) + cmd.colorize(:green) + " - ".colorize(:light_black) + desc.colorize(:white)
+              end
+              puts "\n" + "Macros: ".colorize(:cyan) + command_manager.list_macros.join(', ').colorize(:magenta)
+              puts "Aliases: ".colorize(:cyan) + command_manager.list_aliases.join(', ').colorize(:magenta)
               next
 
             when /^clear$/i

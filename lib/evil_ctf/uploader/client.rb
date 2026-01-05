@@ -8,6 +8,7 @@ require_relative '../logger'
 require_relative '../errors'
 
 module EvilCTF
+  require 'colorize'
   module Uploader
     class Client
       DEFAULT_CHUNK_SIZE = 64 * 1024
@@ -19,7 +20,10 @@ module EvilCTF
 
 
       def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: false, xor_key: nil)
-        raise ::EvilCTF::Errors::UploadError, 'local file missing' unless File.exist?(local_path)
+        unless File.exist?(local_path)
+          puts '[!] Local file missing'.colorize(:red)
+          raise ::EvilCTF::Errors::UploadError, 'local file missing'
+        end
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
@@ -27,6 +31,7 @@ module EvilCTF
         ps_check = "try { $PSVersionTable.PSVersion.ToString() } catch { 'NO_POWERSHELL' }"
         check_res = @shell_adapter.run(ps_check)
         unless check_res && check_res.output && check_res.output.to_s.strip != 'NO_POWERSHELL'
+          puts '[!] PowerShell not available on target. Cannot upload file.'.colorize(:red)
           @logger&.error('[Uploader] PowerShell not available on target. Cannot upload file.')
           raise ::EvilCTF::Errors::UploadError, 'PowerShell not available on target.'
         end
@@ -111,6 +116,7 @@ module EvilCTF
         PS
         mkdir_res = @shell_adapter.run(ps_mkdir)
         unless mkdir_res && mkdir_res.output.to_s.include?('OK')
+          puts '[!] Failed to create remote directory on target.'.colorize(:red)
           @logger&.error("[Uploader] Failed to create remote directory. Script: #{ps_mkdir.strip}\nOutput: #{mkdir_res&.output}")
         end
 
@@ -166,6 +172,7 @@ module EvilCTF
         PS
         init = @shell_adapter.run(ps_init)
         unless init && init.output.to_s.include?('INIT')
+          puts '[!] Failed to initialize remote tmp file.'.colorize(:red)
           @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}. Script: #{ps_init.strip}\nOutput: #{init&.output}")
           raise ::EvilCTF::Errors::UploadError, "Failed to initialize remote tmp file. Output: #{init&.output}"
         end
@@ -302,6 +309,7 @@ module EvilCTF
       def download_file(remote_path, local_path, xor_key: nil, allow_empty: true)
         exist = @shell_adapter.run("Test-Path '#{remote_path.gsub("'", "''")}'")
         unless exist && exist.output.to_s.strip == 'True'
+          puts '[!] Remote path not found'.colorize(:red)
           @logger&.error("[Downloader] Remote path not found: #{remote_path}")
           raise ::EvilCTF::Errors::DownloadError, 'Remote path not found'
         end
@@ -360,6 +368,7 @@ module EvilCTF
 
           res = @shell_adapter.run(ps_chunk)
           if res.nil? || res.output.nil?
+            puts '[!] Empty response during chunk read'.colorize(:red)
             @logger&.error('[Downloader] Empty response during chunk read')
             raise ::EvilCTF::Errors::DownloadError, 'Empty response during chunk read'
           end
@@ -381,6 +390,7 @@ module EvilCTF
           end
 
           if chunk.nil? || chunk.empty?
+            puts '[!] Failed to decode chunk from remote'.colorize(:red)
             @logger&.error('[Downloader] Failed to decode chunk from remote')
             raise ::EvilCTF::Errors::DownloadError, 'Failed to decode chunk'
           end
@@ -399,6 +409,7 @@ module EvilCTF
 
         # Final checks
         if File.exist?(tmp_local) && File.size(tmp_local) == 0 && !allow_empty
+          puts '[!] Remote file empty and empty files not allowed'.colorize(:red)
           @logger&.error('[Downloader] Remote file empty and empty files not allowed')
           raise ::EvilCTF::Errors::DownloadError, 'Remote file empty'
         end

@@ -17,8 +17,9 @@ module EvilCTF
     def self.file_operations_menu(shell)
       require 'readline'
       client = Client.new(shell)
-      puts "\nFile Operations Menu:\n---------------------"
-      puts "[!] To upload into a directory, end the remote destination path with a backslash (e.g., C:\\Users\\jabbatheduck\\)"
+      require 'colorize'
+      puts "\n" + "File Operations Menu:".colorize(:cyan) + "\n" + "---------------------".colorize(:light_black)
+      puts "[!] To upload into a directory, end the remote destination path with a backslash (e.g., C:\\Users\\jabbatheduck\\)".colorize(:yellow)
       # Tab completion for local files/dirs
       file_completion = proc do |input|
         Dir["#{input}*"]
@@ -73,12 +74,12 @@ module EvilCTF
         end
       end
       loop do
-        puts "\nChoose an option:"
-        puts "  1. Upload file"
-        puts "  2. Download file"
-        puts "  3. ZIP and upload directory"
-        puts "  4. Exit fileops menu"
-        print "> "
+        puts "\nChoose an option:".colorize(:cyan)
+        puts "  1. Upload file".colorize(:green)
+        puts "  2. Download file".colorize(:green)
+        puts "  3. ZIP and upload directory".colorize(:green)
+        puts "  4. Exit fileops menu".colorize(:light_black)
+        print "> ".colorize(:cyan)
         choice = $stdin.gets.strip rescue '4'
         case choice
         when '1'
@@ -99,9 +100,9 @@ module EvilCTF
           end
           begin
             ok = client.upload_file(local, remote)
-            puts ok ? "[+] Upload successful" : "[!] Upload failed"
+            puts(ok ? "[+] Upload successful".colorize(:green) : "[!] Upload failed".colorize(:red))
           rescue => e
-            puts "[!] Upload error: #{e.message}"
+            puts "[!] Upload error: #{e.message}".colorize(:red)
           end
         when '2'
           # Remote path completion
@@ -115,9 +116,9 @@ module EvilCTF
           Readline.completion_proc = nil
           begin
             ok = client.download_file(remote, local)
-            puts ok ? "[+] Download successful" : "[!] Download failed"
+            puts(ok ? "[+] Download successful".colorize(:green) : "[!] Download failed".colorize(:red))
           rescue => e
-            puts "[!] Download error: #{e.message}"
+            puts "[!] Download error: #{e.message}".colorize(:red)
           end
         when '3'
           Readline.completion_append_character = nil
@@ -143,19 +144,19 @@ module EvilCTF
                 zipfile.add(file.sub(dir + '/', ''), file)
               end
             end
-            puts "[*] Created ZIP: #{zip_path}"
+            puts "[*] Created ZIP: #{zip_path}".colorize(:cyan)
             ok = client.upload_file(zip_path, remote)
-            puts ok ? "[+] ZIP upload successful" : "[!] ZIP upload failed"
+            puts(ok ? "[+] ZIP upload successful".colorize(:green) : "[!] ZIP upload failed".colorize(:red))
           rescue => e
-            puts "[!] ZIP/upload error: #{e.message}"
+            puts "[!] ZIP/upload error: #{e.message}".colorize(:red)
           ensure
             File.delete(zip_path) if File.exist?(zip_path)
           end
         when '4', '', nil
-          puts "Exiting file operations menu."
+          puts "Exiting file operations menu.".colorize(:light_black)
           break
         else
-          puts "Invalid option."
+          puts "Invalid option.".colorize(:yellow)
         end
       end
     end
