@@ -466,8 +466,96 @@ module EvilCTF
           end
         when :return
           if focus == :left
-            expanded[menu_index] = !expanded[menu_index]
-            child_index = 0
+            if expanded[menu_index]
+              # execute selected child action
+              selected = menu[menu_index][:children][child_index]
+              case menu[menu_index][:title]
+              when 'Sessions'
+                case selected
+                when 'Active Sessions'
+                  if shell
+                    puts "\n[*] Active session info:\n"
+                    puts shell.run('whoami').output
+                    puts shell.run('hostname').output
+                    prompt.keypress('Press any key to continue', keys: [:any])
+                  else
+                    prompt.keypress('No active shell. Start a session first.', keys: [:any])
+                  end
+                when 'New Session'
+                  # prompt for minimal connection info and spawn session in a thread
+                  ip = prompt.ask('Target IP: ')
+                  user = prompt.ask('User: ', default: 'Administrator')
+                  pass = prompt.mask('Password: ')
+                  Thread.new do
+                    begin
+                      opts = { ip: ip, user: user, password: pass, ssl: false }
+                      EvilCTF::Session.run_session(opts)
+                    rescue => e
+                      puts "[!] Failed to start session: #{e.message}"
+                    end
+                  end
+                  prompt.keypress('Session start initiated (background). Press any key.', keys: [:any])
+                when 'Close Session'
+                  prompt.keypress('Close session not implemented in TUI (use CLI).', keys: [:any])
+                end
+              when 'Tools'
+                case selected
+                when 'Recon'
+                  if shell
+                    EvilCTF::Tools.safe_autostage('powerview', shell, {}, nil)
+                    prompt.keypress('Recon tool staged/executed. Press any key.', keys: [:any])
+                  else
+                    prompt.keypress('No active shell to run Recon.', keys: [:any])
+                  end
+                when 'Credential Access'
+                  if shell
+                    EvilCTF::Tools.safe_autostage('mimikatz', shell, {}, nil)
+                    prompt.keypress('Credential tool staged. Press any key.', keys: [:any])
+                  else
+                    prompt.keypress('No active shell to stage tools.', keys: [:any])
+                  end
+                when 'Lateral Movement'
+                  prompt.keypress('Lateral Movement helper not yet wired.', keys: [:any])
+                when 'Enumeration'
+                  if shell
+                    EvilCTF::Tools.safe_autostage('winpeas', shell, {}, nil)
+                    prompt.keypress('Enumeration staged. Press any key.', keys: [:any])
+                  else
+                    prompt.keypress('No active shell to run enumeration.', keys: [:any])
+                  end
+                when 'Upload / Download'
+                  if shell
+                    EvilCTF::Uploader.file_operations_menu(shell)
+                  else
+                    prompt.keypress('No active shell for file operations.', keys: [:any])
+                  end
+                end
+              when 'Macros'
+                if shell
+                  cm = EvilCTF::Tools::CommandManager.new
+                  if cm.expand_macro(selected, shell)
+                    prompt.keypress("Macro #{selected} executed. Press any key.", keys: [:any])
+                  else
+                    prompt.keypress("Macro #{selected} not found or failed.", keys: [:any])
+                  end
+                else
+                  prompt.keypress('No active shell to run macros.', keys: [:any])
+                end
+              when 'Profiles'
+                prompt.keypress("Profile selection not yet implemented.", keys: [:any])
+              when 'Settings'
+                case selected
+                when 'SSL Verification'
+                  state[:ssl] = !state[:ssl]
+                  prompt.keypress("SSL verification toggled to #{state[:ssl]}.", keys: [:any])
+                else
+                  prompt.keypress('Setting change not implemented.', keys: [:any])
+                end
+              end
+            else
+              expanded[menu_index] = !expanded[menu_index]
+              child_index = 0
+            end
           elsif focus == :center
             cmd = prompt.ask('PS> ', default: '')
             break if cmd.nil? || cmd.strip.downcase == 'exit'
