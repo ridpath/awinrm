@@ -1,577 +1,325 @@
-# Minimal TTY Toolkit-safe TUI prototype for EvilCTF
-# This file is intentionally resilient if TTY gems are not installed.
-
 module EvilCTF
   class TUI
-    def self.start(shell = nil, options = {})
-      begin
-        require 'tty-prompt'
-        require 'tty-table'
-        require 'tty-screen'
-      rescue LoadError
-        puts "TTY gems not installed. Install tty-prompt, tty-table, tty-screen to enable the TUI.".yellow
-        return
-      end
-
-      prompt = TTY::Prompt.new
-
-      loop do
-        # Render only the header (title, menus, actions) so prompt appears at top
-        render_dashboard_header(shell, options)
-
-        choice = prompt.select('Main Menu', ['Actions Menu', 'Flag Scan', 'Exit'])
-
-        case choice
-        when 'Actions Menu'
-          sub = prompt.select('Actions Menu', [
-            'Run Command', 'Upload File', 'Download File', 'Stage Tool', 'Execute Tool',
-            'AMSI/ETW Bypass', 'System Recon', 'Open Interactive Shell', 'Back'
-          ])
-          case sub
-          when 'Run Command'
-            prompt.keypress('Run Command selected - press any key to continue')
-          when 'Upload File'
-            prompt.keypress('Upload File selected - press any key to continue')
-          when 'Download File'
-            prompt.keypress('Download File selected - press any key to continue')
-          when 'Stage Tool'
-            prompt.keypress('Stage Tool selected - press any key to continue')
-          when 'Execute Tool'
-            prompt.keypress('Execute Tool selected - press any key to continue')
-          when 'AMSI/ETW Bypass'
-            prompt.keypress('AMSI/ETW Bypass selected - press any key to continue')
-          when 'System Recon'
-            prompt.keypress('System Recon selected - press any key to continue')
-          when 'Open Interactive Shell'
-            prompt.keypress('Open Interactive Shell selected - press any key to continue')
-          when 'Back'
-            # return to main menu
-          end
-        when 'Flag Scan'
-          rows = run_flag_scan(shell)
-          if rows.empty?
-            puts "\nNo flags found.".white
-            prompt.keypress('Press any key to continue')
-          else
-            table = TTY::Table.new(['Path', 'Value'], rows)
-            puts table.render(:unicode)
-            prompt.keypress('Press any key to continue')
-          end
-        when 'Exit'
-          break
-        end
-
-        # After selection, render the main dashboard body below
-        render_dashboard_body(shell, options)
-      end
+    # Simple in-memory trackers for sessions started via the TUI and a small
+    # streaming output buffer used by the CLI pane.
+    def self.sessions
+      @sessions ||= []
     end
 
-    # Public helper to run the same optimized flag scan as the banner and
-    # return an array of [path, value] rows.
-    def self.run_flag_scan(shell)
-      ps = <<~POWERSHELL
-        $found_flags = @{}
-        $search_locations = @(
-          "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt",
-          "C:\\Users\\*\\Desktop\\flag.txt",
-          "C:\\Users\\*\\Desktop\\user.txt",
-          "C:\\Users\\*\\Desktop\\root.txt",
-          "C:\\Users\\*\\Documents\\flag.txt",
-          "C:\\Users\\*\\Downloads\\flag.txt"
-        )
-
-        foreach ($location in $search_locations) {
-          try {
-            Get-ChildItem -Path $location -ErrorAction SilentlyContinue | ForEach-Object {
-              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-              if ($content -and $content.Trim() -and $content.Trim().Length -lt 500) {
-                if (-not $found_flags.ContainsKey($_.FullName)) {
-                  $found_flags[$_.FullName] = $content.Trim()
-                }
-              }
-            }
-          } catch { }
-        }
-
-        $user_dirs = @("Desktop", "Documents", "Downloads")
-        foreach ($user_dir in $user_dirs) {
-          try {
-            Get-ChildItem "C:\\Users\\*\\$user_dir\\*" -Include "flag*", "user.txt", "root.txt" -Recurse -Depth 1 -ErrorAction SilentlyContinue | ForEach-Object {
-              $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-              if ($content -and $content.Trim() -and $content.Trim().Length -lt 500) {
-                if (-not $found_flags.ContainsKey($_.FullName)) {
-                  $found_flags[$_.FullName] = $content.Trim()
-                }
-              }
-            }
-          } catch { }
-        }
-
-        $found_flags.GetEnumerator() | ForEach-Object {
-          Write-Output "FLAGFOUND|||$($_.Key)|||$($_.Value)"
-        }
-      POWERSHELL
-
-      begin
-        result = shell.run(ps)
-      rescue => e
-        return []
-      end
-
-      rows = []
-      require 'set'
-      seen = Set.new
-      result.output.each_line do |line|
-        next unless line.include?("FLAGFOUND|||")
-        path, value = line.strip.split('|||', 3)[1..2]
-        next unless path
-        key = path.strip
-        next if seen.include?(key)
-        seen << key
-        rows << [path.strip, (value || '').strip]
-      end
-
-      rows
+    def self.stream_buffer
+      @stream_buffer ||= []
     end
 
-    # Keep old combined renderer for compatibility: header + body
-    def self.render_dashboard(shell, options)
-      render_dashboard_header(shell, options)
-      render_dashboard_body(shell, options)
-    end
+    # Render a fixed 3-column layout (left menu, center CLI, right meta)
+    # Accepts optional `sessions` (array) and `stream_lines` to display
+    # live data in the panels.
+    def self.render_fixed_layout(shell, state = {}, sessions = [], stream_lines = [])
+      cols = (TTY::Screen.width rescue 100)
+      total = [cols, 120].min
 
-    def self.render_dashboard_header(shell, options)
-      cols = (TTY::Screen.width rescue 80)
-      header = ' AWINRM OPERATOR CONSOLE '
-      hn = (shell.run('hostname').output.strip rescue 'Unknown')
-      ip = options[:ip] || 'N/A'
-      host = "Host: #{hn} (#{ip})"
-
-      box_width = [cols, 100].min
-      left_w = [24, (box_width * 0.20).floor].max
-      center_w = box_width - left_w - 3
-
-      # Title box
-      puts "┌" + "─" * (box_width - 2) + "┐"
-      puts "│" + header.center(box_width - 2) + "│"
-      puts "│" + host.center(box_width - 2) + "│"
-      puts "└" + "─" * (box_width - 2) + "┘"
-      puts
-
-      # Two-column header: left = MENU, center = TERMINAL
-      puts "─" * box_width
-      left_title = ' MENU '
-      center_title = ' TERMINAL '
-      puts left_title.ljust(left_w) + ' ' * 3 + center_title.rjust(center_w)
-      puts "─" * box_width
-    end
-
-    def self.render_dashboard_body(shell, options)
-      cols = (TTY::Screen.width rescue 80)
-      box_width = [cols, 100].min
-      left_w = [24, (box_width * 0.20).floor].max
-      center_w = box_width - left_w - 3
-
-      # Left: vertical menu / commands
-      menu_lines = []
-      menu_lines << 'Actions:'
-      menu_lines << '  1) Open Actions Menu'
-      menu_lines << '  2) Sessions'
-      menu_lines << '  3) Tools'
-      menu_lines << '  4) Loot'
-      menu_lines << '  5) Macros'
-      menu_lines << '  6) Profiles'
-      menu_lines << '  7) Logs'
-      menu_lines << ''
-      menu_lines << 'Commands:'
-      menu_lines << '  r) Run Command'
-      menu_lines << '  u) Upload Tool'
-      menu_lines << ''
-
-      # Center: terminal-like output
-      center_lines = []
-      center_lines << 'PS> whoami'
-      center_lines << (shell.run('whoami').output.strip rescue '')
-      center_lines << ''
-      center_lines << 'PS> systeminfo | findstr /B /C:"OS Name" /C:"OS Version"'
-      center_lines += (shell.run('systeminfo | findstr /B /C:"OS Name" /C:"OS Version"').output.strip rescue '').lines.map(&:chomp)
-      center_lines << ''
-      center_lines << 'STATUS: ✔ Connected   ✔ Shell Ready'
-
-      max_lines = [menu_lines.size, center_lines.size].max
-      (0...max_lines).each do |i|
-        l = menu_lines[i] || ''
-        c = center_lines[i] || ''
-        print l.ljust(left_w)
-        print ' ' * 3
-        puts c.ljust(center_w)
-      end
-
-      puts "─" * box_width
-    end
-
-    # Demo mode: replay a scripted, live-updating dashboard for visual testing
-    def self.demo(_shell = nil, options = {})
-      demo_shell = Object.new
-      def demo_shell.run(cmd)
-        case cmd
-        when 'hostname'
-          Struct.new(:output).new("demo-host\n")
-        when '[Security.Principal.WindowsIdentity]::GetCurrent().Name'
-          Struct.new(:output).new("Demo\\User\n")
-        when 'whoami /groups'
-          Struct.new(:output).new("Users\n")
-        when 'whoami'
-          Struct.new(:output).new("demo\\user\n")
-        when /systeminfo/
-          Struct.new(:output).new("OS Name: DemoOS\nOS Version: 1.0\n")
-        else
-          Struct.new(:output).new("\n")
-        end
-      end
-
-      cols = (TTY::Screen.width rescue 80)
-      box_width = [cols, 100].min
-      left_w = [24, (box_width * 0.20).floor].max
-      center_w = box_width - left_w - 3
-
-      # scripted right-panel events
-      events = [
-        "Initializing quick scan...",
-        "FLAGFOUND: C:\\Users\\Alice\\Desktop\\flag.txt flag{demo}",
-        "Scanning Profiles...",
-        "Found suspicious file: C:\\Users\\Bob\\Documents\\user.txt",
-        "FLAGFOUND: C:\\Users\\Bob\\Documents\\user.txt flag{bob}",
-        "Upload complete: tool.exe (12KB)",
-        "Integrity check passed"
-      ]
-
-      # progressively render frames
-      right_buffer = []
-      events.each_with_index do |ev, idx|
-        right_buffer << ev
-        system('clear') rescue nil
-        render_dashboard_header(demo_shell, options)
-
-
-        menu_lines = [
-          "Actions:",
-          "  1) Open Actions Menu",
-          "  2) Sessions",
-          "  3) Tools",
-          "  4) Loot",
-          "  5) Macros",
-          "  6) Profiles",
-          "  7) Logs",
-          "",
-        ]
-
-        max_lines = [menu_lines.size, right_buffer.size].max
-        (0...max_lines).each do |i|
-          l = menu_lines[i] || ''
-          r = right_buffer[i] || ''
-          print l.ljust(left_w)
-          print ' ' * 3
-          puts r.ljust(center_w)
-        end
-
-        puts "─" * box_width
-        sleep 0.55
-      end
-
-      puts "\nDemo complete. Press Enter to exit."
-      STDIN.gets rescue nil
-    end
-
-    # Render a full Rainfrog-inspired layout once (non-interactive preview)
-    def self.render_full_layout_once(shell, state = {})
-      cols = (TTY::Screen.width rescue 80)
-      box_width = [cols, 120].min
-      left_w = [24, (box_width * 0.20).floor].max
-      center_w = box_width - left_w - 3
+      left_w   = 28
+      right_w  = 24
+      center_w = total - left_w - right_w - 6   # borders + spacing
 
       # Top bar
-      top = " AWINRM OPERATOR CONSOLE "
-      host = state[:host] || (shell && (shell.run('hostname').output.strip rescue 'Unknown')) || 'N/A'
-      status = state[:connected] ? 'Connected' : 'Disconnected'
-      shell_type = state[:shell] || 'PowerShell'
-      ssl = state[:ssl] ? 'OK' : 'UNVERIFIED'
+      puts "┌" + "─" * (total - 2) + "┐"
+      puts "│ AWINRM OPERATOR CONSOLE".ljust(total - 1) + "│"
+      meta = "Host: #{state[:host] || 'N/A'}   Status: #{state[:connected] ? 'Connected' : 'Disconnected'}   Shell: #{state[:shell] || 'PowerShell'}   SSL: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}"
+      puts "│ #{meta.ljust(total - 4)} │"
+      puts "└" + "─" * (total - 2) + "┘"
 
-      puts "┌" + "─" * (box_width - 2) + "┐"
-      puts "│ " + top.ljust(box_width - 4) + " │"
-      meta = "Host: #{host}   Status: #{status}   Shell: #{shell_type}   SSL: #{ssl}"
-      puts "│ " + meta.ljust(box_width - 4) + " │"
-      puts "└" + "─" * (box_width - 2) + "┘"
+      # Pane headers
+      puts "┌" + "─" * (left_w) + "┬" + "─" * (center_w) + "┬" + "─" * (right_w) + "┐"
+      puts "│ MENU (Alt+1)".ljust(left_w + 1) +
+           "│ INTERACTIVE CLI (Alt+2)".ljust(center_w + 1) +
+           "│ META ".ljust(right_w + 1) + "│"
+      puts "├" + "─" * (left_w) + "┼" + "─" * (center_w) + "┼" + "─" * (right_w) + "┤"
 
-      # Main panes header
-      puts
-      puts "┌" + "─" * (box_width - 2) + "┐"
-      left_title = ' MENU (Alt+1) '
-      center_title = ' INTERACTIVE CLI (Alt+2) '
-      right_title = ' META '
-      puts "│" + left_title.ljust(left_w) + ' ' * 3 + center_title.center(center_w) + " │"
-      puts "├" + "─" * (box_width - 2) + "┤"
-
-      # Sample left menu + center content
-      menu_lines = [
-        'Sessions',
-        '  Active Sessions',
-        '  New Session',
-        '  Close Session',
-        '',
-        'Tools',
-        '  Recon',
-        '  Credential Access',
-        '  Lateral Movement',
-        '  Enumeration',
-        '  Upload / Download',
-        '',
-        'Macros',
-        '  recon_basic',
-        '  recon_full',
-        '  dump_creds',
-        '  disable_defender',
-        '',
-        'Profiles',
-        '  default.yml',
-        '  ctf.yml',
-        '  prod.yml',
-        '',
-        'Settings',
-        '  SSL Verification',
-        '  Logging',
-        '  Shell Adapter',
-        '  Paths'
+      # Left menu content
+      left = [
+        "Sessions",
+        "  Active Sessions",
+        "  New Session",
+        "  Close Session",
+        "",
+        "Tools",
+        "  Recon",
+        "  Credential Access",
+        "  Lateral Movement",
+        "  Enumeration",
+        "  Upload / Download",
+        "",
+        "Macros",
+        "  recon_basic",
+        "  recon_full",
+        "  dump_creds",
+        "  disable_defender",
+        "",
+        "Profiles",
+        "  default.yml",
+        "  ctf.yml",
+        "  prod.yml",
+        "",
+        "Settings",
+        "  SSL Verification",
+        "  Logging",
+        "  Shell Adapter",
+        "  Paths"
       ]
 
-      center_lines = [
-        'PS> whoami',
-        (shell && (shell.run('whoami').output.strip rescue '')) || 'WIN-CTF-01\\Administrator',
-        '',
-        'PS> systeminfo | findstr /B /C:"OS Name" /C:"OS Version"',
-        'OS Name: Microsoft Windows Server 2019 Standard',
-        'OS Version: 10.0.17763',
-        '',
-        'PS> upload_file C:\\Tools\\SharpHound.exe',
-        '[██████████░░░░░░░░░░░░░░░] 48%   Chunk 12/25',
-        '',
-        '[command history]  recon_basic',
-        '[streaming output continues below]'
+      # Center CLI content (inject streaming output at the bottom)
+      center = [
+        "PS> whoami",
+        (shell && (shell.run('whoami').output.strip rescue 'demo\\user')) || 'demo\\user',
+        "",
+        "PS> systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"",
+        "OS Name: Microsoft Windows Server 2019 Standard",
+        "OS Version: 10.0.17763",
+        "",
+        "PS> upload_file C:\\Tools\\SharpHound.exe",
+        "[██████████░░░░░░░░░░░░░░░] 48%   Chunk 12/25",
+        "",
+        "[history] recon_basic"
       ]
 
-      max_lines = [menu_lines.size, center_lines.size].max
-      (0...max_lines).each do |i|
-        l = menu_lines[i] || ''
-        c = center_lines[i] || ''
-        print '│ '
-        print l.ljust(left_w - 2)
-        print ' ' * 3
-        print c.ljust(center_w)
-        puts ' │'
+      # Append latest stream lines (keep center area informative)
+      if stream_lines && !stream_lines.empty?
+        center << ""
+        stream_lines.last(6).each do |ln|
+          center << ln.to_s
+        end
+      else
+        center << "[streaming output continues]"
       end
 
-      puts "└" + "─" * (box_width - 2) + "┘"
+      # Right meta panel (show active sessions)
+      right = ["Active Sessions:"]
+      if sessions && !sessions.empty?
+        sessions.each do |s|
+          status = s[:thread] && s[:thread].alive? ? 'running' : 'stopped'
+          right << "  - #{s[:ip]} (#{s[:user]}) [#{status}]"
+        end
+      else
+        right << "  (none)"
+      end
+      right << ""
+      right << "Last Scan: 00:12"
+      right << ""
+      right << "Alerts:"
+      right << "  [!] 2 pending"
+      right << ""
+      right << "Mode:"
+      right << "  NORMAL"
+      right << "  (i = insert, v = visual)"
 
-      # Bottom results pane
+      # Render rows
+      max_rows = [left.size, center.size, right.size].max
+      max_rows.times do |i|
+        l = left[i]   || ""
+        c = center[i] || ""
+        r = right[i]  || ""
+
+        print "│ #{l.ljust(left_w - 1)}"
+        print "│ #{c.ljust(center_w - 1)}"
+        print "│ #{r.ljust(right_w - 1)}│\n"
+      end
+
+      puts "└" + "─" * (left_w) + "┴" + "─" * (center_w) + "┴" + "─" * (right_w) + "┘"
+
+      # Results pane
       puts
-      puts "┌" + "─" * (box_width - 2) + "┐"
-      puts "│ RESULTS (Alt+3)".ljust(box_width - 1) + "│"
-      puts "├" + "─" * (box_width - 2) + "┤"
-      puts "│ Command: recon_basic".ljust(box_width - 1) + "│"
-      puts "│ ------------------------------------------------------------".ljust(box_width - 1) + "│"
-      puts "│ [+] Hostname: WIN-CTF-01".ljust(box_width - 1) + "│"
-      puts "│ [+] Domain: CONTOSO".ljust(box_width - 1) + "│"
-      puts "│ [+] Logged-on users: Administrator".ljust(box_width - 1) + "│"
-      puts "│ [+] High-value targets: DC01, SQL01".ljust(box_width - 1) + "│"
-      puts "│ [+] Defender status: Enabled".ljust(box_width - 1) + "│"
-      puts "└" + "─" * (box_width - 2) + "┘"
+      puts "┌" + "─" * (total - 2) + "┐"
+      puts "│ RESULTS (Alt+3)".ljust(total - 1) + "│"
+      puts "├" + "─" * (total - 2) + "┤"
+      puts "│ Command: recon_basic".ljust(total - 1) + "│"
+      puts "│ ------------------------------------------------------------".ljust(total - 1) + "│"
+      puts "│ [+] Hostname: WIN-CTF-01".ljust(total - 1) + "│"
+      puts "│ [+] Domain: CONTOSO".ljust(total - 1) + "│"
+      puts "│ [+] Logged-on users: Administrator".ljust(total - 1) + "│"
+      puts "│ [+] High-value targets: DC01, SQL01".ljust(total - 1) + "│"
+      puts "│ [+] Defender status: Enabled".ljust(total - 1) + "│"
+      puts "└" + "─" * (total - 2) + "┘"
 
       # Footer
       footer = "[R] refresh  [j] down  [k] up  [/] search  [g] top  [G] bottom  [F1] Sessions  [F2] CLI  [F3] Results"
-      puts footer.center(box_width)
+      puts footer.center(total)
     end
 
-    # Starter interactive Rainfrog-like loop (minimal): left menu navigation + CLI input
-    def self.start_rainfrog(shell = nil, options = {})
-      begin
-        require 'tty-prompt'
-        require 'tty-screen'
-        require 'tty-reader'
-      rescue LoadError
-        puts "TTY gems not installed. Install tty-prompt, tty-screen and tty-reader to enable the TUI.".yellow
+    def self.render_dashboard(shell, state = {})
+      cols = (TTY::Screen.width rescue 100)
+      total = [cols, 100].min
+
+      puts "┌" + "─" * (total - 2) + "┐"
+      puts "│ EvilCTF Dashboard".ljust(total - 1) + "│"
+      puts "├" + "─" * (total - 2) + "┤"
+
+      host = state[:host] || 'N/A'
+      user = (shell.run('whoami').output.strip rescue 'N/A')
+      os_info = (shell.run('systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"').output.strip rescue 'N/A')
+
+      puts "│ Host: #{host.ljust(total - 10)}│"
+      puts "│ User: #{user.ljust(total - 10)}│"
+      puts "│ #{os_info.ljust(total - 4)} │"
+
+      puts "├" + "─" * (total - 2) + "┤"
+      puts "│ Connection Status: #{state[:connected] ? 'Connected' : 'Disconnected'}".ljust(total - 1) + "│"
+      puts "│ Shell Type: #{state[:shell] || 'PowerShell'}".ljust(total - 1) + "│"
+      puts "│ SSL Verification: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}".ljust(total - 1) + "│"
+      puts "└" + "─" * (total - 2) + "┘"
+    end
+
+    def self.run_enumeration(shell, type, cache = {})
+      if cache[type]
+        puts "[*] Using cached enumeration for #{type}".colorize(:cyan)
+        puts cache[type]
         return
       end
 
-      prompt = TTY::Prompt.new
+      puts "[*] Running #{type} enumeration...".colorize(:cyan)
+
+      cmds = case type
+             when 'basic'
+               ['whoami /all', 'net user', 'systeminfo']
+             when 'network'
+               ['ipconfig /all', 'netstat -ano']
+             when 'privilege'
+               ['whoami /priv', 'net localgroup Administrators', 'net share', 'tasklist /v']
+             when 'av_check'
+               ['powershell "Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AntivirusEnabled,AMServiceEnabled"', 'sc query WinDefend']
+             when 'persistence'
+               ['schtasks /query /fo LIST /v', 'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"']
+             when 'deep'
+               [
+                 'whoami /all',
+                 'systeminfo',
+                 'net user',
+                 'net localgroup Administrators',
+                 'tasklist /v',
+                 'sc query state= all',
+                 'wmic product get Name,Version,InstallDate'
+               ]
+             else
+               ['systeminfo']
+             end
+
+      output = ''
+      cmds.each do |cmd|
+        result = shell.run(cmd)
+        output += "\n> #{cmd}\n"
+        output += result.output.to_s
+        output += "\n"
+      end
+
+      cache[type] = output
+      puts output
+    end
+
+    # Lightweight interactive dashboard loop. Shows live info from `shell` and
+    # supports manual refresh ('r') and quit ('q'). Resilient if TTY gems are
+    # missing — will still render once and exit.
+    def self.start_rainfrog(shell = nil, options = {})
+      begin
+        require 'tty-screen'
+        require 'tty-reader'
+      rescue LoadError
+        # Render once and return if tty gems aren't available
+        render_fixed_layout(shell, host: (shell && (shell.run('hostname').output.strip rescue nil)), connected: !!shell, shell: (options[:shell] || 'PowerShell'), ssl: options[:ssl])
+        return
+      end
+
       reader = TTY::Reader.new
-      state = { host: (shell && (shell.run('hostname').output.strip rescue nil)), connected: !!shell, shell: 'PowerShell', ssl: true }
-      history = []
-      results = []
+      should_exit = false
 
-      # Menu model: simple tree
-      menu = [
-        { title: 'Sessions', children: ['Active Sessions', 'New Session', 'Close Session'] },
-        { title: 'Tools', children: ['Recon', 'Credential Access', 'Lateral Movement', 'Enumeration', 'Upload / Download'] },
-        { title: 'Macros', children: ['recon_basic', 'recon_full', 'dump_creds', 'disable_defender'] },
-        { title: 'Profiles', children: ['default.yml', 'ctf.yml', 'prod.yml'] },
-        { title: 'Settings', children: ['SSL Verification', 'Logging', 'Shell Adapter', 'Paths'] }
-      ]
+      while !should_exit
+        # Build state safely from shell
+        state = {}
+        begin
+          state[:host] = shell && (shell.run('hostname').output.strip rescue nil)
+        rescue
+          state[:host] = nil
+        end
+        begin
+          state[:user] = shell && (shell.run('[Security.Principal.WindowsIdentity]::GetCurrent().Name').output.strip rescue nil)
+        rescue
+          state[:user] = nil
+        end
+        state[:connected] = !!shell
+        state[:shell] = options[:shell] || 'PowerShell'
+        state[:ssl] = !!options[:ssl]
 
-      focus = :center # :left, :center, :results, :history, :favorites
-      menu_index = 0
-      child_index = 0
-      expanded = {}
-
-      loop do
         system('clear') rescue nil
-        render_full_layout_once(shell, state)
+        render_fixed_layout(shell, state, self.sessions, self.stream_buffer)
 
-        key = reader.read_key
-        case key
-        when :ctrl_c
+        # Read a single key and react
+        key = nil
+        begin
+          if reader.respond_to?(:read_key)
+            key = reader.read_key
+          elsif reader.respond_to?(:read_char)
+            key = reader.read_char
+          else
+            key = STDIN.getch rescue nil
+          end
+        rescue Interrupt
+          should_exit = true
           break
-        when :f1
-          focus = :left
-        when :f2
-          focus = :center
-        when :f3
-          focus = :results
-        when :f4
-          focus = :history
-        when :f5
-          focus = :favorites
-        when :up, :arrow_up, 'k'
-          if focus == :left
-            if expanded[menu_index] && child_index > 0
-              child_index -= 1
+        rescue => _e
+          # Non-fatal — allow refresh or quit via Enter
+          key = nil
+        end
+
+        case key
+        when 'q', 'Q', :ctrl_c
+          should_exit = true
+        when 'r', 'R'
+          next
+        when 'n', 'N'
+          # Start a new background session via prompt
+          begin
+            prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
+            ip = prompt ? prompt.ask('Target IP:') : (print('Target IP: '); STDIN.gets&.strip)
+            user = prompt ? prompt.ask('User:', default: 'Administrator') : (print('User [Administrator]: '); (STDIN.gets&.strip || 'Administrator'))
+            pass = nil
+            if prompt
+              pass = prompt.mask('Password:')
             else
-              menu_index = [0, menu_index - 1].max
-              child_index = 0
+              print 'Password: '
+              pass = STDIN.noecho(&:gets).to_s.strip rescue STDIN.gets.to_s.strip
+              puts
             end
-          end
-        when :down, :arrow_down, 'j'
-          if focus == :left
-            if expanded[menu_index]
-              max_child = menu[menu_index][:children].size - 1
-              if child_index < max_child
-                child_index += 1
-              else
-                menu_index = [menu.size - 1, menu_index + 1].min
-                child_index = 0
+            t = Thread.new do
+              begin
+                Session.run_session({ ip: ip, user: user, password: pass, ssl: false, banner_mode: :minimal })
+              rescue => e
+                puts "[!] Failed to start session: #{e.message}"
               end
-            else
-              menu_index = [menu.size - 1, menu_index + 1].min
-              child_index = 0
             end
+            self.sessions << { ip: ip, user: user, thread: t, started_at: Time.now }
+          rescue => e
+            # ignore prompt failures
           end
-        when :return
-          if focus == :left
-            if expanded[menu_index]
-              # execute selected child action
-              selected = menu[menu_index][:children][child_index]
-              case menu[menu_index][:title]
-              when 'Sessions'
-                case selected
-                when 'Active Sessions'
-                  if shell
-                    puts "\n[*] Active session info:\n"
-                    puts shell.run('whoami').output
-                    puts shell.run('hostname').output
-                    prompt.keypress('Press any key to continue', keys: [:any])
-                  else
-                    prompt.keypress('No active shell. Start a session first.', keys: [:any])
-                  end
-                when 'New Session'
-                  # prompt for minimal connection info and spawn session in a thread
-                  ip = prompt.ask('Target IP: ')
-                  user = prompt.ask('User: ', default: 'Administrator')
-                  pass = prompt.mask('Password: ')
-                  Thread.new do
-                    begin
-                      opts = { ip: ip, user: user, password: pass, ssl: false }
-                      EvilCTF::Session.run_session(opts)
-                    rescue => e
-                      puts "[!] Failed to start session: #{e.message}"
-                    end
-                  end
-                  prompt.keypress('Session start initiated (background). Press any key.', keys: [:any])
-                when 'Close Session'
-                  prompt.keypress('Close session not implemented in TUI (use CLI).', keys: [:any])
-                end
-              when 'Tools'
-                case selected
-                when 'Recon'
-                  if shell
-                    EvilCTF::Tools.safe_autostage('powerview', shell, {}, nil)
-                    prompt.keypress('Recon tool staged/executed. Press any key.', keys: [:any])
-                  else
-                    prompt.keypress('No active shell to run Recon.', keys: [:any])
-                  end
-                when 'Credential Access'
-                  if shell
-                    EvilCTF::Tools.safe_autostage('mimikatz', shell, {}, nil)
-                    prompt.keypress('Credential tool staged. Press any key.', keys: [:any])
-                  else
-                    prompt.keypress('No active shell to stage tools.', keys: [:any])
-                  end
-                when 'Lateral Movement'
-                  prompt.keypress('Lateral Movement helper not yet wired.', keys: [:any])
-                when 'Enumeration'
-                  if shell
-                    EvilCTF::Tools.safe_autostage('winpeas', shell, {}, nil)
-                    prompt.keypress('Enumeration staged. Press any key.', keys: [:any])
-                  else
-                    prompt.keypress('No active shell to run enumeration.', keys: [:any])
-                  end
-                when 'Upload / Download'
-                  if shell
-                    EvilCTF::Uploader.file_operations_menu(shell)
-                  else
-                    prompt.keypress('No active shell for file operations.', keys: [:any])
-                  end
-                end
-              when 'Macros'
-                if shell
-                  cm = EvilCTF::Tools::CommandManager.new
-                  if cm.expand_macro(selected, shell)
-                    prompt.keypress("Macro #{selected} executed. Press any key.", keys: [:any])
-                  else
-                    prompt.keypress("Macro #{selected} not found or failed.", keys: [:any])
-                  end
-                else
-                  prompt.keypress('No active shell to run macros.', keys: [:any])
-                end
-              when 'Profiles'
-                prompt.keypress("Profile selection not yet implemented.", keys: [:any])
-              when 'Settings'
-                case selected
-                when 'SSL Verification'
-                  state[:ssl] = !state[:ssl]
-                  prompt.keypress("SSL verification toggled to #{state[:ssl]}.", keys: [:any])
-                else
-                  prompt.keypress('Setting change not implemented.', keys: [:any])
-                end
+          next
+        when 'c', 'C'
+          # Run a command on the provided shell (if present) and append output to stream buffer
+          if shell
+            begin
+              cmd = (defined?(TTY::Prompt) ? TTY::Prompt.new.ask('PS>') : (print 'PS> '; STDIN.gets&.strip))
+              if cmd && !cmd.strip.empty?
+                res = shell.run(cmd)
+                out = res.output.to_s
+                out.lines.each { |ln| self.stream_buffer << "#{cmd} -> #{ln.chomp}" }
+                # keep buffer bounded
+                self.stream_buffer.shift while self.stream_buffer.size > 300
               end
-            else
-              expanded[menu_index] = !expanded[menu_index]
-              child_index = 0
+            rescue => e
+              self.stream_buffer << "[!] Command error: #{e.message}"
             end
-          elsif focus == :center
-            cmd = prompt.ask('PS> ', default: '')
-            break if cmd.nil? || cmd.strip.downcase == 'exit'
-            next if cmd.strip.empty?
-            history << cmd
-            if cmd.start_with?('upload')
-              results << "Uploading: #{cmd.split.last}"
-            else
-              out = (shell && (shell.run(cmd).output rescue '')) || "[simulated output for: #{cmd}]"
-              results << "#{cmd} -> #{out.to_s.lines.first.to_s.strip}"
-            end
-            prompt.keypress('Press any key to continue', keys: [:any])
+          else
+            self.stream_buffer << "[!] No active shell to run commands"
           end
-        when '/'
-          prompt.ask('Search menu: ')
-        when 'r'
+          next
+        else
+          # any other key refreshes
           next
         end
       end
