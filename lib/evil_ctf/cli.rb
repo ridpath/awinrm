@@ -53,6 +53,7 @@ module EvilCTF
         opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
         opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }
         opts.on('--banner MODE', 'Banner mode (minimal|expanded)')       { |v| options[:banner_mode] = v&.to_sym }
+        opts.on('--tui', 'Launch interactive TTY-based UI (uses tty gems)') { options[:tui] = true }
         opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
         opts.on('--log-session', 'Enable session logging to disk (log/ directory)') { options[:log_session] = true }
         opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
