@@ -396,37 +396,96 @@ module EvilCTF
       begin
         require 'tty-prompt'
         require 'tty-screen'
+        require 'tty-reader'
       rescue LoadError
-        puts "TTY gems not installed. Install tty-prompt and tty-screen to enable the TUI.".yellow
+        puts "TTY gems not installed. Install tty-prompt, tty-screen and tty-reader to enable the TUI.".yellow
         return
       end
 
       prompt = TTY::Prompt.new
+      reader = TTY::Reader.new
       state = { host: (shell && (shell.run('hostname').output.strip rescue nil)), connected: !!shell, shell: 'PowerShell', ssl: true }
       history = []
       results = []
+
+      # Menu model: simple tree
+      menu = [
+        { title: 'Sessions', children: ['Active Sessions', 'New Session', 'Close Session'] },
+        { title: 'Tools', children: ['Recon', 'Credential Access', 'Lateral Movement', 'Enumeration', 'Upload / Download'] },
+        { title: 'Macros', children: ['recon_basic', 'recon_full', 'dump_creds', 'disable_defender'] },
+        { title: 'Profiles', children: ['default.yml', 'ctf.yml', 'prod.yml'] },
+        { title: 'Settings', children: ['SSL Verification', 'Logging', 'Shell Adapter', 'Paths'] }
+      ]
+
+      focus = :center # :left, :center, :results, :history, :favorites
+      menu_index = 0
+      child_index = 0
+      expanded = {}
 
       loop do
         system('clear') rescue nil
         render_full_layout_once(shell, state)
 
-        # Focus: ask for a command in the CLI pane
-        cmd = prompt.ask('PS> ', default: '')
-        break if cmd.nil? || cmd.strip.downcase == 'exit'
-        next if cmd.strip.empty?
-
-        # Record history and simulate output
-        history << cmd
-        if cmd.start_with?('upload')
-          results << "Uploading: #{cmd.split.last}"
-          puts "Uploading... (simulated)"
-        else
-          # In real use: send to shell.run(cmd) and stream output
-          out = (shell && (shell.run(cmd).output rescue '')) || "[simulated output for: #{cmd}]"
-          results << "#{cmd} -> #{out.to_s.lines.first.to_s.strip}"
+        key = reader.read_key
+        case key
+        when :ctrl_c
+          break
+        when :f1
+          focus = :left
+        when :f2
+          focus = :center
+        when :f3
+          focus = :results
+        when :f4
+          focus = :history
+        when :f5
+          focus = :favorites
+        when :up, :arrow_up, 'k'
+          if focus == :left
+            if expanded[menu_index] && child_index > 0
+              child_index -= 1
+            else
+              menu_index = [0, menu_index - 1].max
+              child_index = 0
+            end
+          end
+        when :down, :arrow_down, 'j'
+          if focus == :left
+            if expanded[menu_index]
+              max_child = menu[menu_index][:children].size - 1
+              if child_index < max_child
+                child_index += 1
+              else
+                menu_index = [menu.size - 1, menu_index + 1].min
+                child_index = 0
+              end
+            else
+              menu_index = [menu.size - 1, menu_index + 1].min
+              child_index = 0
+            end
+          end
+        when :return
+          if focus == :left
+            expanded[menu_index] = !expanded[menu_index]
+            child_index = 0
+          elsif focus == :center
+            cmd = prompt.ask('PS> ', default: '')
+            break if cmd.nil? || cmd.strip.downcase == 'exit'
+            next if cmd.strip.empty?
+            history << cmd
+            if cmd.start_with?('upload')
+              results << "Uploading: #{cmd.split.last}"
+            else
+              out = (shell && (shell.run(cmd).output rescue '')) || "[simulated output for: #{cmd}]"
+              results << "#{cmd} -> #{out.to_s.lines.first.to_s.strip}"
+            end
+            prompt.keypress('Press any key to continue', keys: [:any])
+          end
+        when '/'
+          prompt.ask('Search menu: ')
+        when 'r'
+          next
         end
-
-        prompt.keypress('Press any key to continue', keys: [:any])
       end
     end
   end
