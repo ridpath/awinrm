@@ -18,3 +18,9 @@ group :test do
 	gem 'rspec', '~> 3.12'
 	gem 'mocha', '~> 1.15'
 end
+
+group :development do
+	gem 'tty-prompt'
+	gem 'tty-table'
+	gem 'tty-screen'
+end
