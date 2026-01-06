@@ -1,28 +1,6 @@
-    'runascs' => {
-      name: 'RunasCs',
-      filename: 'RunasCs.exe',
-      search_patterns: ['RunasCs.exe', 'RunasCs*.exe'],
-      description: 'C# RunAs implementation for user impersonation and UAC bypass',
-      url: 'https://github.com/antonioCoco/RunasCs',
-      download_url: 'https://github.com/antonioCoco/RunasCs/releases/latest/download/RunasCs.exe',
-      backup_urls: [],
-      zip: false,
-      recommended_remote: 'C:\\Users\\Public\\RunasCs.exe',
-      auto_execute: false,
-      category: 'privilege'
-    },
-module EvilCTF
-  module Tools
-    # Safely escape single quotes for PowerShell single-quoted strings
-    def self.ps_single_quote_escape(str)
-      str.to_s.gsub("'", "''")
-    end
-    # This file intentionally small: use files under lib/evil_ctf/tools/*
-  end
-end
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Compatibility shim – define Fixnum for Ruby 3.x
+# Compatibility shim – define Fixnum for Ruby\u20093.x
 class Fixnum < Integer; end unless defined?(Fixnum)
 require 'fileutils'
 require 'zip'
@@ -34,7 +12,6 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/uploader'
-
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
