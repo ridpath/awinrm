@@ -6,6 +6,8 @@ require_relative '../tools/crypto'
 require_relative '../shell_adapter'
 require_relative '../logger'
 require_relative '../errors'
+require_relative '../utils'
+require_relative '../app_state'
 
 module EvilCTF
   require 'colorize'
@@ -19,7 +21,7 @@ module EvilCTF
       end
 
 
-      def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: false, xor_key: nil)
+      def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: true, xor_key: nil)
         unless File.exist?(local_path)
           puts '[!] Local file missing'.colorize(:red)
           raise ::EvilCTF::Errors::UploadError, 'local file missing'
@@ -49,7 +51,7 @@ module EvilCTF
 
         if is_ads
           # --- ADS upload logic using Add-Content -Encoding Byte ---
-          ads_path = final_remote_path.gsub("'", "''")
+          ads_path = EvilCTF::Utils.escape_ps_string(final_remote_path)
           begin
             File.open(local_path, 'rb') do |f|
               idx = 0
@@ -122,7 +124,14 @@ module EvilCTF
 
         tmp_token = Time.now.to_i.to_s + rand(9999).to_s
         tmp_remote = final_remote_path + ".part_#{tmp_token}"
-        escaped_tmp = tmp_remote.gsub("'", "''")
+        escaped_tmp = EvilCTF::Utils.escape_ps_string(tmp_remote)
+
+        # Register upload in AppState so UI can show real progress
+        upload_id = "upload_#{tmp_token}_#{Thread.current.object_id}"
+        begin
+          EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: File.size(local_path), sent: 0 })
+        rescue => _e
+        end
 
         # Use WinRM::FS if available
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
@@ -130,8 +139,13 @@ module EvilCTF
           begin
             @logger&.info("[Uploader] Using WinRM::FS upload via adapter for #{local_path} -> #{tmp_remote}")
             fm.upload(local_path, tmp_remote)
+            # mark as completed
+            begin
+              EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: File.size(local_path), sent: File.size(local_path) })
+            rescue
+            end
             # move into place
-            escaped_final = final_remote_path.gsub("'", "''")
+            escaped_final = EvilCTF::Utils.escape_ps_string(final_remote_path)
             ps_rm_final = <<~PS
               try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
             PS
@@ -155,6 +169,10 @@ module EvilCTF
             return true
           rescue => e
             @logger&.warn("[Uploader] WinRM::FS upload failed, falling back: #{e.message}")
+            begin
+              EvilCTF::AppState.instance.clear_upload(upload_id)
+            rescue
+            end
           end
         end
 
@@ -179,7 +197,7 @@ module EvilCTF
 
         begin
           File.open(local_path, 'rb') do |f|
-            escaped_tmp_q = tmp_remote.gsub("'", "''")
+            escaped_tmp_q = EvilCTF::Utils.escape_ps_string(tmp_remote)
             ps_exists = "Test-Path '#{escaped_tmp_q}'"
             exist_res = @shell_adapter.run(ps_exists)
             offset = 0
@@ -193,6 +211,12 @@ module EvilCTF
 
             idx = (offset / chunk_size)
             bytes_sent = offset
+            local_size = File.size(local_path)
+            # ensure app_state knows total
+            begin
+              EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: local_size, sent: bytes_sent })
+            rescue
+            end
             while (buf = f.read(chunk_size))
               payload = if xor_key
                           EvilCTF::Tools::Crypto.xor_crypt(buf, xor_key)
@@ -202,7 +226,7 @@ module EvilCTF
                           buf
                         end
               b64 = Base64.strict_encode64(payload)
-              escaped_remote = tmp_remote.gsub("'", "''")
+              escaped_remote = EvilCTF::Utils.escape_ps_string(tmp_remote)
               ps = <<~PS
                 try {
                   $b64 = @'
@@ -225,6 +249,11 @@ module EvilCTF
               end
 
               bytes_sent += buf.bytesize
+              # update progress in AppState
+              begin
+                EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: local_size, sent: bytes_sent })
+              rescue
+              end
               ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
               len_res = @shell_adapter.run(ps_len_check)
               remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
@@ -244,6 +273,10 @@ module EvilCTF
           end
         rescue => e
           @logger&.error("[Uploader] Upload failed during chunked transfer: #{e.class}: #{e.message}")
+          begin
+            EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
+          rescue
+          end
           raise ::EvilCTF::Errors::UploadError, e.message
         end
 
@@ -261,7 +294,7 @@ module EvilCTF
         end
 
         # Ensure final does not exist, then move temp file into place atomically (or try copy as fallback)
-        escaped_final = remote_path.gsub("'", "''")
+        escaped_final = EvilCTF::Utils.escape_ps_string(final_remote_path)
         ps_rm_final = <<~PS
           try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
         PS
@@ -292,7 +325,7 @@ module EvilCTF
         end
 
         if verify
-          ps = "(Get-FileHash -Path '#{remote_path}' -Algorithm SHA256).Hash"
+          ps = "(Get-FileHash -Path '#{final_remote_path}' -Algorithm SHA256).Hash"
           res = @shell_adapter.run(ps)
           remote_raw = res && res.output ? res.output.to_s : ''
           remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
@@ -300,14 +333,34 @@ module EvilCTF
             cleaned = remote_raw.gsub(/[^0-9A-Fa-f]/, '')
             remote_hash = cleaned[0,64] if cleaned && cleaned.length >= 64
           end
+          begin
+            EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
+          rescue
+          end
           return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: tmp_hash }
         end
 
+        begin
+          EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
+        rescue
+        end
         true
+      ensure
+        # best-effort cleanup of temporary part files if any error occurred
+        begin
+          if defined?(tmp_remote) && tmp_remote && @shell_adapter
+            ::EvilCTF::Uploader.cleanup_tmp(tmp_remote, @shell_adapter) rescue nil
+          end
+        rescue
+        end
+        begin
+          EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
+        rescue
+        end
       end
 
       def download_file(remote_path, local_path, xor_key: nil, allow_empty: true)
-        exist = @shell_adapter.run("Test-Path '#{remote_path.gsub("'", "''")}'")
+        exist = @shell_adapter.run("Test-Path '#{EvilCTF::Utils.escape_ps_string(remote_path)}'")
         unless exist && exist.output.to_s.strip == 'True'
           puts '[!] Remote path not found'.colorize(:red)
           @logger&.error("[Downloader] Remote path not found: #{remote_path}")
@@ -347,7 +400,7 @@ module EvilCTF
         loop do
           ps_chunk = <<~PS
             try {
-              $path = '#{remote_path.gsub("'", "''")}'
+              $path = '#{EvilCTF::Utils.escape_ps_string(remote_path)}'
               $fs = [System.IO.File]::OpenRead($path)
               $fs.Seek(#{offset}, 'Begin') | Out-Null
               $buf = New-Object byte[] #{chunk_size}
