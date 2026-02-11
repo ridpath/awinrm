@@ -1,4 +1,8 @@
 # frozen_string_literal: true
+unless defined?(Fixnum)
+  Fixnum = Integer
+end
+
 require 'winrm' rescue nil
 
 
@@ -65,17 +69,11 @@ module EvilCTF
           )
         end
         return conn
-      rescue WinRM::WinRMEndpointError => e
-        warn "[!] WARNING - Connection failed for #{endpoint} (endpoint error): #{e.message}"
-      rescue WinRM::WinRMAuthenticationError => e
-        warn "[!] WARNING - Authentication failed for #{user}@#{endpoint}: #{e.message}"
-      rescue WinRM::WinRMTransportError => e
-        warn "[!] WARNING - Transport error for #{endpoint}: #{e.message}"
-      rescue WinRM::WinRMEndpointUnavailableError => e
-        warn "[!] WARNING - Endpoint unavailable for #{endpoint}: #{e.message}"
-      rescue WinRM::WinRMSessionError => e
-        warn "[!] WARNING - Session creation failed for #{endpoint}: #{e.message}"
       rescue => e
+        # The WinRM gem defines several specific exception classes across
+        # versions; to avoid uninitialized constant errors on older/newer
+        # versions and Ruby 3 compatibility issues, catch all errors here
+        # and give a concise warning message.
         warn "[!] WARNING - Connection error for #{endpoint}: #{e.class}: #{e.message}"
       end
       nil

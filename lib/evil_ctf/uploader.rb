@@ -54,10 +54,10 @@ module EvilCTF
           end
 
           # Always show completions for drive roots and partials
-          ps = <<~PS
+            ps = <<~PS
             try {
-              $d = '#{dir.gsub("'", "''")}'
-              $p = '#{partial.gsub("'", "''")}'
+              $d = '#{EvilCTF::Utils.escape_ps_string(dir)}'
+              $p = '#{EvilCTF::Utils.escape_ps_string(partial)}'
               $results = Get-ChildItem -Path $d -Directory -Name | Where-Object { $_ -like "$p*" } | ForEach-Object { Join-Path $d $_ }
               if ($results.Count -eq 0 -and $p -eq '') {
                 # Show drive letters
@@ -158,6 +158,24 @@ module EvilCTF
         else
           puts "Invalid option.".colorize(:yellow)
         end
+      end
+    end
+
+    # Remove temporary part files on the remote host (best-effort)
+    def self.cleanup_tmp(remote_tmp, shell_or_adapter)
+      return unless remote_tmp && shell_or_adapter
+      begin
+        adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
+        escaped = EvilCTF::Utils.escape_ps_string(remote_tmp)
+        ps = <<~PS
+          try {
+            Remove-Item -Path '#{escaped}' -Force -ErrorAction SilentlyContinue
+            "OK"
+          } catch { "ERROR: $($_.Exception.Message)" }
+        PS
+        adapter.run(ps)
+      rescue => _e
+        nil
       end
     end
   end
