@@ -661,17 +661,27 @@ module EvilCTF::Session
   def self.add_ipv6_to_hosts(ip, hostname)
     hosts_file = '/etc/hosts'
     entry = "#{ip} #{hostname}"
-    # Check if already present
-    if File.readlines(hosts_file).any? { |line| line.strip == entry }
-      puts "[+] /etc/hosts already contains: #{entry}"
-      return
+    
+    begin
+      # Check if already present
+      if File.readlines(hosts_file).any? { |line| line.strip == entry }
+        puts "[+] /etc/hosts already contains: #{entry}"
+        return
+      end
+      # Backup hosts file
+      backup = hosts_file + ".evilctf.bak"
+      FileUtils.cp(hosts_file, backup) unless File.exist?(backup)
+      # Append entry
+      File.open(hosts_file, 'a') { |f| f.puts entry }
+      puts "[+] /etc/hosts updated: #{entry}"
+    rescue Errno::EACCES, Errno::EPERM => e
+      puts "[!] WARNING: Unable to modify /etc/hosts (permissions required): #{e.message}"
+      puts "[!] Try running with sudo: sudo -E ./evil-ctf [args]"
+      puts "[!] Continuing session anyway..."
+    rescue => e
+      puts "[!] WARNING: Failed to update /etc/hosts: #{e.message}"
+      puts "[!] Continuing session anyway..."
     end
-    # Backup hosts file
-    backup = hosts_file + ".evilctf.bak"
-    FileUtils.cp(hosts_file, backup) unless File.exist?(backup)
-    # Append entry
-    File.open(hosts_file, 'a') { |f| f.puts entry }
-    puts "[+] /etc/hosts updated: #{entry}"
   end
 
   def self.setup_autocomplete(history)
