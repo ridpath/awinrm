@@ -4,6 +4,7 @@
 # AWINRM CTF Edition
 
 require 'optparse'
+require_relative '../lib/compat/silence_warnings'
 require 'winrm'
 require 'ipaddr'
 require 'socket'

