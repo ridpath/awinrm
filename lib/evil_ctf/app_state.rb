@@ -20,6 +20,16 @@ module EvilCTF
       @cli_input = ''
       @cli_history = []
       @menu_open = nil
+      @screen_width = 100
+      @screen_height = 30
+      @pane_focus = :sidebar
+      @layout_version = 0
+      @pending_connection = {}
+      @settings = {
+        logging_enabled: false,
+        theme: 'default',
+        scrollback_limit: 300
+      }
     end
 
     attr_reader :mutex
@@ -38,6 +48,15 @@ module EvilCTF
 
     def set_active_session(s)
       @mutex.synchronize { @active_session = s }
+    end
+
+    # Alias for controller APIs that refer to current session.
+    def current_session
+      active_session
+    end
+
+    def set_current_session(s)
+      set_active_session(s)
     end
 
     def running_tasks
@@ -104,6 +123,33 @@ module EvilCTF
       @mutex.synchronize { @menu_open = sym }
     end
 
+    def pane_focus
+      @mutex.synchronize { @pane_focus }
+    end
+
+    def set_pane_focus(focus)
+      @mutex.synchronize { @pane_focus = focus }
+    end
+
+    def screen_size
+      @mutex.synchronize { [@screen_width, @screen_height] }
+    end
+
+    def set_screen_size(width, height)
+      @mutex.synchronize do
+        @screen_width = width.to_i
+        @screen_height = height.to_i
+      end
+    end
+
+    def layout_version
+      @mutex.synchronize { @layout_version }
+    end
+
+    def bump_layout_version
+      @mutex.synchronize { @layout_version += 1 }
+    end
+
     def append_result(line)
       @mutex.synchronize do
         @results_buffer << line.to_s
@@ -118,7 +164,8 @@ module EvilCTF
     def append_stream(line)
       @mutex.synchronize do
         @stream_buffer << line.to_s
-        @stream_buffer.shift while @stream_buffer.size > 300
+        limit = [@settings[:scrollback_limit].to_i, 50].max
+        @stream_buffer.shift while @stream_buffer.size > limit
       end
     end
 
@@ -136,6 +183,29 @@ module EvilCTF
 
     def clear_upload(id)
       @mutex.synchronize { @uploads.delete(id) }
+    end
+
+    def settings
+      @mutex.synchronize { @settings.dup }
+    end
+
+    def set_setting(key, value)
+      @mutex.synchronize { @settings[key.to_sym] = value }
+    end
+
+    def toggle_setting(key)
+      @mutex.synchronize do
+        sym = key.to_sym
+        @settings[sym] = !@settings[sym]
+      end
+    end
+
+    def pending_connection
+      @mutex.synchronize { @pending_connection.dup }
+    end
+
+    def set_pending_connection(data)
+      @mutex.synchronize { @pending_connection = (data || {}).dup }
     end
   end
 end

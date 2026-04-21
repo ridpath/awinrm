@@ -3,6 +3,7 @@ module EvilCTF
     # Simple in-memory trackers for sessions started via the TUI and a small
     # streaming output buffer used by the CLI pane.
     require_relative 'app_state'
+    require_relative 'tui_controller'
 
     def self.app_state
       EvilCTF::AppState.instance
@@ -30,28 +31,29 @@ module EvilCTF
       app_state.stream_snapshot
     end
 
-    # Render a fixed 3-column layout (left menu, center CLI, right meta)
-    # Accepts optional `sessions` (array) and `stream_lines` to display
-    # live data in the panels.
-    def self.render_fixed_layout(shell, state = {}, sessions = [], stream_lines = [])
+    # Build a dynamic 2-column frame (left menu, center CLI).
+    # Returns frame lines plus cursor anchor metadata for diff-based rendering.
+    def self.build_fixed_layout_lines(shell, state = {}, sessions = [], stream_lines = [])
       width, height = screen_size
-      total = [[width, 72].max, 180].min
+      total = [width, 40].max
 
-      left_w = [[(total * 0.26).to_i, 22].max, 36].min
-      center_w = [total - left_w - 6, 24].max # borders + spacing (no meta column)
+      left_w = [[(total * 0.20).to_i, 18].max, total - 15].min
+      center_w = [total - left_w - 3, 10].max
+
+      lines = []
 
       # Top bar
-      puts "┌" + "─" * (total - 2) + "┐"
-      puts "│ " + fit_line("AWINRM OPERATOR CONSOLE", total - 4).ljust(total - 4) + " │"
+      lines << ("┌" + "─" * (total - 2) + "┐")
+      lines << ("│ " + fit_line("AWINRM OPERATOR CONSOLE", total - 4).ljust(total - 4) + " │")
       meta = "Host: #{state[:host] || 'N/A'}   Status: #{state[:connected] ? 'Connected' : 'Disconnected'}   Shell: #{state[:shell] || 'PowerShell'}   SSL: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}"
-      puts "│ " + fit_line(meta, total - 4).ljust(total - 4) + " │"
-      puts "└" + "─" * (total - 2) + "┘"
+      lines << ("│ " + fit_line(meta, total - 4).ljust(total - 4) + " │")
+      lines << ("└" + "─" * (total - 2) + "┘")
 
-       # Pane headers (two-column layout)
-       puts "┌" + "─" * (left_w) + "┬" + "─" * (center_w) + "┐"
-       puts "│ MENU (Alt+1)".ljust(left_w + 1) +
-         "│ INTERACTIVE CLI (Alt+2)".ljust(center_w + 1) + "│"
-       puts "├" + "─" * (left_w) + "┼" + "─" * (center_w) + "┤"
+      # Pane headers (two-column layout)
+      lines << ("┌" + "─" * (left_w) + "┬" + "─" * (center_w) + "┐")
+      lines << ("│#{fit_line('MENU (Alt+1)', left_w).ljust(left_w)}" +
+        "│#{fit_line('INTERACTIVE CLI (Alt+2)', center_w).ljust(center_w)}│")
+      lines << ("├" + "─" * (left_w) + "┼" + "─" * (center_w) + "┤")
 
       # Left menu content
       # Top-level menu definitions (for rendering and interaction)
@@ -80,16 +82,18 @@ module EvilCTF
 
       # Center CLI content (history + interactive prompt)
       center = []
+      center_inner_w = [center_w, 1].max
       # Show last CLI history lines (real commands/results)
       cli_hist = app_state.cli_history_snapshot || []
-      if cli_hist && !cli_hist.empty?
-        cli_hist.last(6).each do |ln|
+      wrapped_hist = wrap_lines(cli_hist, center_inner_w)
+      if wrapped_hist && !wrapped_hist.empty?
+        wrapped_hist.last(12).each do |ln|
           center << ln.to_s
         end
       else
         # Fallback to showing recent stream lines or example placeholders
         if stream_lines && !stream_lines.empty?
-          stream_lines.last(6).each do |ln|
+          wrap_lines(stream_lines, center_inner_w).last(12).each do |ln|
             center << ln.to_s
           end
         else
@@ -100,7 +104,7 @@ module EvilCTF
       # Always show the latest stream lines after history for realtime feedback
       if stream_lines && !stream_lines.empty?
         center << ""
-        stream_lines.last(6).each do |ln|
+        wrap_lines(stream_lines, center_inner_w).last(16).each do |ln|
           center << ln.to_s
         end
       end
@@ -119,31 +123,61 @@ module EvilCTF
         end
       end
 
-      # Provide the interactive prompt line (PS> ...) reflecting current CLI input
+      # Raw-input CLI line with prompt sourced from remote shell state.
       center << ""
       cli_input = app_state.cli_input || ''
-      center << "PS> #{cli_input}"
+      prompt_text = state[:remote_prompt].to_s
+      prompt_text = 'PS> ' if prompt_text.strip.empty?
+      visible_prompt_line = build_prompt_display_line(
+        prompt_text: prompt_text,
+        cli_input: cli_input,
+        width: center_w
+      )
+      center << visible_prompt_line
 
-        # Render rows (two-column layout), constrained to terminal height.
-        reserved_lines = 10
-        visible_rows = [[height - reserved_lines, 8].max, [left.size, center.size].max].min
-        left_tail = left.last(visible_rows)
-        center_tail = center.last(visible_rows)
-        max_rows = [left_tail.size, center_tail.size].max
-        max_rows.times do |i|
-          l = fit_line(left_tail[i] || "", left_w - 1)
-          c = fit_line(center_tail[i] || "", center_w - 1)
+      # Render rows (two-column layout), constrained to terminal height.
+      fixed_rows = 4 + 3 + 1 + 1 # top bar + pane header + pane bottom + footer
+      visible_rows = [height - fixed_rows, 4].max
+      left_tail = left.last(visible_rows)
+      center_tail = center.last(visible_rows)
+      prompt_index = center.length - 1
+      center_start = [center.length - visible_rows, 0].max
+      prompt_visible_row = prompt_index - center_start
 
-          print "│ #{l.ljust(left_w - 1)}"
-          print "│ #{c.ljust(center_w - 1)}│\n"
-        end
+      visible_rows.times do |i|
+        l = fit_line(left_tail[i] || "", left_w)
+        c = fit_line(center_tail[i] || "", center_w)
 
-        puts "└" + "─" * (left_w) + "┴" + "─" * (center_w) + "┘"
+        lines << ("│#{l.ljust(left_w)}│#{c.ljust(center_w)}│")
+      end
+
+      lines << ("└" + "─" * (left_w) + "┴" + "─" * (center_w) + "┘")
 
       # Footer: include menu toggle hints and insert-mode indicator
       mode_label = app_state.mode == :insert ? '[INSERT]' : '[NORMAL]'
       footer = "[S] Sessions [T] Tools [M] Macros [P] Profiles [E] Settings [U] Upload [D] Download #{mode_label} [i] insert [q] quit"
-      puts fit_line(footer, total).center(total)
+      lines << fit_line(footer, total).center(total)
+
+      prompt_row = if prompt_visible_row >= 0 && prompt_visible_row < visible_rows
+                     7 + prompt_visible_row
+                   else
+                     7 + visible_rows - 1
+                   end
+      center_text_col = left_w + 2
+      prompt_col = center_text_col + [visible_prompt_line.length, center_w].min
+
+      {
+        lines: lines,
+        cursor_anchor: { row: prompt_row, col: prompt_col },
+        show_cursor: app_state.pane_focus == :cli,
+        width: total
+      }
+    end
+
+    # Render fixed layout for compatibility with existing specs.
+    def self.render_fixed_layout(shell, state = {}, sessions = [], stream_lines = [])
+      frame = build_fixed_layout_lines(shell, state, sessions, stream_lines)
+      frame[:lines].each { |ln| puts ln }
     end
 
     def self.render_dashboard(shell, state = {})
@@ -230,6 +264,9 @@ module EvilCTF
       begin
         require 'tty-screen'
         require 'tty-reader'
+        require 'tty-prompt'
+        require 'tty-cursor'
+        require 'concurrent'
       rescue LoadError
         # Render once and return if tty gems aren't available
         render_fixed_layout(shell, host: (shell && (shell.run('hostname').output.strip rescue nil)), connected: !!shell, shell: (options[:shell] || 'PowerShell'), ssl: options[:ssl])
@@ -239,6 +276,34 @@ module EvilCTF
       reader = TTY::Reader.new
       should_exit = false
       shutdown = false
+      cursor = TTY::Cursor
+      previous_frame = []
+      last_layout_version = app_state.layout_version
+      previous_winch = nil
+
+      refresh_screen_size!(bump: false)
+      app_state.set_pane_focus(:sidebar)
+
+      # Queue-driven async command execution keeps UI loop non-blocking.
+      command_queue = Queue.new
+      prompt_factory = lambda do
+        defined?(TTY::Prompt) ? TTY::Prompt.new : nil
+      end
+      controller = EvilCTF::TUI::Controller.new(
+        app_state: app_state,
+        command_queue: command_queue,
+        transfer_callback: lambda { |direction:, shell:| transfer_file(shell: shell, direction: direction) },
+        root_path: File.expand_path('../..', __dir__),
+        prompt_factory: prompt_factory
+      )
+
+      begin
+        previous_winch = Signal.trap('WINCH') do
+          refresh_screen_size!(bump: true)
+        end
+      rescue ArgumentError
+        previous_winch = nil
+      end
 
       # If TUI was launched with an active shell, register it as the active session
       begin
@@ -276,11 +341,21 @@ module EvilCTF
               h = EvilCTF::Execution.run(current_shell, 'hostname', timeout: 5)
               u = EvilCTF::Execution.run(current_shell, '[Security.Principal.WindowsIdentity]::GetCurrent().Name', timeout: 5)
               o = EvilCTF::Execution.run(current_shell, 'systeminfo | findstr /B /C:"OS Name" /C:"OS Version"', timeout: 8)
+              p = EvilCTF::Execution.run(current_shell, 'prompt', timeout: 3)
               host = h && h.output ? h.output.strip : nil
               user = u && u.output ? u.output.strip : nil
               os   = o && o.output ? o.output.strip : nil
+              remote_prompt = p && p.output ? p.output.to_s.strip : 'PS> '
+              remote_prompt = 'PS> ' if remote_prompt.nil? || remote_prompt.empty?
+              remote_prompt = "#{remote_prompt} " unless remote_prompt.end_with?(' ')
               connected = h && h.ok
-              ui_state_mutex.synchronize { ui_state[:host] = host; ui_state[:user] = user; ui_state[:os_info] = os; ui_state[:connected] = connected }
+              ui_state_mutex.synchronize do
+                ui_state[:host] = host
+                ui_state[:user] = user
+                ui_state[:os_info] = os
+                ui_state[:connected] = connected
+                ui_state[:remote_prompt] = remote_prompt
+              end
             else
               ui_state_mutex.synchronize { ui_state[:connected] = false }
             end
@@ -288,6 +363,54 @@ module EvilCTF
             ui_state_mutex.synchronize { ui_state[:connected] = false }
           end
           sleep 2
+        end
+      end
+
+      worker = Thread.new do
+        loop do
+          break if shutdown
+          begin
+            item = command_queue.pop
+            break if item == :shutdown
+
+            shell_obj = item[:shell]
+            cmd = item[:cmd].to_s
+            next if shell_obj.nil? || cmd.empty?
+
+            app_state.append_cli_history("PS> #{cmd}")
+
+            res = EvilCTF::Execution.stream(shell_obj, cmd, timeout: 180, poll_interval: 1) do |chunk|
+              chunk.to_s.lines.each do |ln|
+                stripped = ln.chomp
+                app_state.append_stream(stripped)
+                app_state.append_cli_history(stripped)
+              end
+            end
+
+            final_output = res&.output.to_s
+            unless final_output.empty?
+              final_output.lines.each do |ln|
+                stripped = ln.chomp
+                app_state.append_stream(stripped)
+                app_state.append_cli_history(stripped)
+              end
+            end
+
+            unless res && res.ok
+              app_state.push_alert("Command failed or timed out: #{cmd}")
+            end
+
+            begin
+              prompt_res = EvilCTF::Execution.run(shell_obj, 'prompt', timeout: 3)
+              prompt_line = prompt_res&.output.to_s.strip
+              prompt_line = 'PS> ' if prompt_line.empty?
+              prompt_line = "#{prompt_line} " unless prompt_line.end_with?(' ')
+              app_state.append_stream(prompt_line)
+            rescue
+            end
+          rescue => e
+            app_state.append_stream("[!] Worker error: #{e.class}: #{e.message}")
+          end
         end
       end
 
@@ -301,9 +424,22 @@ module EvilCTF
         # Ensure we use the currently active session (if any) for commands
         current_shell = app_state.active_session || shell
 
-        # Use authoritative AppState for sessions/streams/results
-        system('clear') rescue nil
-        render_fixed_layout(current_shell, state, app_state.sessions, app_state.stream_snapshot)
+        current_layout_version = app_state.layout_version
+        if current_layout_version != last_layout_version
+          previous_frame = []
+          last_layout_version = current_layout_version
+        end
+
+        # Use authoritative AppState for sessions/streams/results and render via frame diff.
+        frame_data = build_fixed_layout_lines(current_shell, state, app_state.sessions, app_state.stream_snapshot)
+        render_frame_diff(
+          cursor: cursor,
+          previous_frame: previous_frame,
+          frame: frame_data[:lines],
+          cursor_anchor: frame_data[:cursor_anchor],
+          show_cursor: frame_data[:show_cursor]
+        )
+        previous_frame = frame_data[:lines]
 
         # Read a single key and react. Use IO.select with short timeout so
         # the UI refreshes regularly and shows background output without
@@ -333,52 +469,29 @@ module EvilCTF
           key = nil
         end
 
-        # Menu toggle keys (uppercase): toggle top-level menus
-        if key == 'S' || key == 'T' || key == 'M' || key == 'P' || key == 'E'
-          map = { 'S' => :sessions, 'T' => :tools, 'M' => :macros, 'P' => :profiles, 'E' => :settings }
-          sel = map[key]
-          if app_state.menu_open == sel
-            app_state.set_menu_open(nil)
-          else
-            app_state.set_menu_open(sel)
-          end
-          next
-        end
-
         # If user entered insert mode, capture typed characters directly into AppState.cli_input
         if app_state.mode == :insert
           # handle insert-mode keys: printable strings append, backspace removes, Enter submits
           begin
             if key == :return || key == :enter || key == "\r" || key == "\n"
               cmd = app_state.cli_input.to_s.strip
-              app_state.append_cli_history("PS> #{cmd}") if cmd && !cmd.empty?
               app_state.set_cli_input('')
               app_state.set_mode(:NORMAL)
               if current_shell && cmd && !cmd.empty?
-                Thread.new do
-                  begin
-                    res = EvilCTF::Execution.run(current_shell, cmd, timeout: 120)
-                    out = res.output.to_s
-                    # Append both to stream and CLI history so output shows in the interactive pane
-                    out.lines.each do |ln|
-                      app_state.append_stream("#{cmd} -> #{ln.chomp}")
-                      app_state.append_cli_history(ln.chomp)
-                    end
-                    app_state.append_result("#{cmd}\n#{out}")
-                    unless res.ok
-                      app_state.push_alert("Command finished with non-zero exit or timeout: #{cmd}")
-                    end
-                  rescue => e
-                    app_state.append_stream("[!] Command error: #{e.class}: #{e.message}")
-                  end
-                end
+                command_queue << { shell: current_shell, cmd: cmd }
               else
                 app_state.append_stream('[!] No active shell to run command') unless current_shell
               end
+            elsif key == :alt_1 || key == "\e1"
+              app_state.set_pane_focus(:sidebar)
+              app_state.set_mode(:NORMAL)
+            elsif key == :alt_2 || key == "\e2"
+              app_state.set_pane_focus(:cli)
+              app_state.set_mode(:insert)
             elsif key == :backspace || key == :delete || key == 127 || key == "\u007F"
               cur = app_state.cli_input.to_s
               app_state.set_cli_input(cur[0..-2] || '')
-            elsif key.is_a?(String)
+            elsif key.is_a?(String) && key.match?(/\A[[:print:]]+\z/)
               # printable character(s)
               cur = app_state.cli_input.to_s
               app_state.set_cli_input(cur + key)
@@ -390,13 +503,19 @@ module EvilCTF
           next
         end
 
+        # Global hotkeys are routed through the controller in NORMAL mode.
+        if controller.handle_key(key: key, current_shell: current_shell)
+          next
+        end
+
         case key
         when 'q', 'Q', :ctrl_c
           should_exit = true
         when 'r', 'R'
           next
-        when 'i', 'I'
-          # Enter insert mode to type directly into the CLI prompt
+        when 'i', 'I', :alt_2, "\e2"
+          # Enter raw input mode for the CLI pane.
+          app_state.set_pane_focus(:cli)
           app_state.set_mode(:insert)
           next
         when '1'
@@ -410,10 +529,11 @@ module EvilCTF
         when 'n', 'N'
           # Start a new background session via prompt
           begin
-            prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
-            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: nil)
-            user = prompt_value(prompt: prompt, label: 'User:', default: 'Administrator')
-            pass = prompt_value(prompt: prompt, label: 'Password:', default: nil, secret: true)
+            prompt = prompt_factory.call
+            profile = app_state.pending_connection
+            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: profile[:ip])
+            user = prompt_value(prompt: prompt, label: 'User:', default: (profile[:user] || profile[:username] || 'Administrator'))
+            pass = prompt_value(prompt: prompt, label: 'Password:', default: profile[:password], secret: true)
             if ip.to_s.strip.empty? || user.to_s.strip.empty?
               TUI.append_stream('[!] Target IP and User are required')
               next
@@ -421,13 +541,34 @@ module EvilCTF
             # Create a connection and shell adapter in background and set it as active
             t = Thread.new do
               begin
-                opts = { ip: ip, user: user, password: pass, ssl: false }
-                endpoint = "http://#{ip}:5985/wsman"
+                opts = {
+                  ip: ip,
+                  user: user,
+                  password: pass,
+                  hash: profile[:hash],
+                  port: profile[:port],
+                  ssl: !!profile[:ssl],
+                  kerberos: profile[:kerberos],
+                  realm: profile[:realm],
+                  keytab: profile[:keytab],
+                  proxy: profile[:proxy],
+                  user_agent: profile[:user_agent],
+                  debug: profile[:debug]
+                }
+                port = opts[:port] || (opts[:ssl] ? 5986 : 5985)
+                scheme = opts[:ssl] ? 'https' : 'http'
+                endpoint = "#{scheme}://#{ip}:#{port}/wsman"
                 validation = EvilCTF::Session.test_connection(
                   endpoint: endpoint,
                   user: user,
                   password: pass,
-                  ssl: false,
+                  hash: profile[:hash],
+                  kerberos: profile[:kerberos],
+                  realm: profile[:realm],
+                  keytab: profile[:keytab],
+                  transport: profile[:transport],
+                  user_agent: profile[:user_agent],
+                  ssl: opts[:ssl],
                   timeout: 10
                 )
                 unless validation[:ok]
@@ -454,18 +595,11 @@ module EvilCTF
           end
           next
         when 'c', 'C', :f2
-          # Run a command on the provided shell (if present) in background and append output to stream buffer
-          if current_shell
-            begin
-              handle_cli_submit(current_shell)
-            rescue => e
-              TUI.append_stream("[!] Command error (submit): #{e.class}: #{e.message}")
-            end
-          else
-            TUI.append_stream("[!] No active shell to run commands")
-          end
+          # Focus CLI pane for raw input.
+          app_state.set_pane_focus(:cli)
+          app_state.set_mode(:insert)
           next
-        when 's', 'S', :f3
+        when :f3
           # session enumeration / refresh results
           if current_shell
             Thread.new do
@@ -486,23 +620,45 @@ module EvilCTF
         when :f1
           # Map F1 to 'new session' flow
           begin
-            prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
-            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: nil)
-            user = prompt_value(prompt: prompt, label: 'User:', default: 'Administrator')
-            pass = prompt_value(prompt: prompt, label: 'Password:', default: nil, secret: true)
+            prompt = prompt_factory.call
+            profile = app_state.pending_connection
+            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: profile[:ip])
+            user = prompt_value(prompt: prompt, label: 'User:', default: (profile[:user] || profile[:username] || 'Administrator'))
+            pass = prompt_value(prompt: prompt, label: 'Password:', default: profile[:password], secret: true)
             if ip.to_s.strip.empty? || user.to_s.strip.empty?
               TUI.append_stream('[!] Target IP and User are required')
               next
             end
             t = Thread.new do
               begin
-                opts = { ip: ip, user: user, password: pass, ssl: false }
-                endpoint = "http://#{ip}:5985/wsman"
+                opts = {
+                  ip: ip,
+                  user: user,
+                  password: pass,
+                  hash: profile[:hash],
+                  port: profile[:port],
+                  ssl: !!profile[:ssl],
+                  kerberos: profile[:kerberos],
+                  realm: profile[:realm],
+                  keytab: profile[:keytab],
+                  proxy: profile[:proxy],
+                  user_agent: profile[:user_agent],
+                  debug: profile[:debug]
+                }
+                port = opts[:port] || (opts[:ssl] ? 5986 : 5985)
+                scheme = opts[:ssl] ? 'https' : 'http'
+                endpoint = "#{scheme}://#{ip}:#{port}/wsman"
                 validation = EvilCTF::Session.test_connection(
                   endpoint: endpoint,
                   user: user,
                   password: pass,
-                  ssl: false,
+                  hash: profile[:hash],
+                  kerberos: profile[:kerberos],
+                  realm: profile[:realm],
+                  keytab: profile[:keytab],
+                  transport: profile[:transport],
+                  user_agent: profile[:user_agent],
+                  ssl: opts[:ssl],
                   timeout: 10
                 )
                 unless validation[:ok]
@@ -528,20 +684,6 @@ module EvilCTF
             # ignore prompt failures
           end
           next
-        when 'u', 'U', :f5
-          if current_shell
-            transfer_file(shell: current_shell, direction: :upload)
-          else
-            TUI.append_stream('[!] No active shell for upload')
-          end
-          next
-        when 'd', 'D', :f6
-          if current_shell
-            transfer_file(shell: current_shell, direction: :download)
-          else
-            TUI.append_stream('[!] No active shell for download')
-          end
-          next
         else
           # any other key refreshes
           next
@@ -551,31 +693,69 @@ module EvilCTF
       # Clean shutdown: stop poller and restore terminal mode
       begin
         shutdown = true
+        command_queue << :shutdown rescue nil
         poller.join(1) if poller && poller.alive?
+        worker.join(1) if worker && worker.alive?
       rescue
       end
       begin
+        Signal.trap('WINCH', previous_winch) if previous_winch
+      rescue
+      end
+      begin
+        print cursor.show rescue nil
         system('stty sane') rescue nil
       rescue
       end
     end
 
-    # Helper: prompt for a command and execute it in background using Execution.run
-    def self.handle_cli_submit(shell)
-      prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
-      cmd = prompt_value(prompt: prompt, label: 'PS>', default: nil)
-      return unless cmd && !cmd.strip.empty?
-      Thread.new do
-        begin
-          res = EvilCTF::Execution.run(shell, cmd, timeout: 120)
-          out = res.output.to_s
-          out.lines.each { |ln| TUI.append_stream("#{cmd} -> #{ln.chomp}") }
-          unless res.ok
-            TUI.append_stream("[!] Command finished with non-zero exit or timeout: #{res.output}")
-          end
-        rescue => e
-          TUI.append_stream("[!] Command error: #{e.class}: #{e.message}")
+    def self.render_frame_diff(cursor:, previous_frame:, frame:, cursor_anchor:, show_cursor:)
+      width, _height = screen_size
+      max = [previous_frame.length, frame.length].max
+      output = String.new
+
+      max.times do |idx|
+        current = frame[idx] || ''
+        prior = previous_frame[idx] || ''
+        next if current == prior
+
+        line = fit_line(current, width)
+        output << cursor.move_to(0, idx)
+        output << line
+        output << "\e[0K"
+      end
+
+      if previous_frame.length > frame.length
+        (frame.length...previous_frame.length).each do |idx|
+          output << cursor.move_to(0, idx)
+          output << "\e[0K"
         end
+      end
+
+      if show_cursor
+        output << cursor.show
+        if cursor_anchor && cursor_anchor[:row] && cursor_anchor[:col]
+          output << cursor.move_to(cursor_anchor[:col], cursor_anchor[:row])
+        else
+          output << cursor.move_to(0, frame.length)
+        end
+      else
+        output << cursor.hide
+        if cursor_anchor && cursor_anchor[:row] && cursor_anchor[:col]
+          output << cursor.move_to(cursor_anchor[:col], cursor_anchor[:row])
+        else
+          output << cursor.move_to(0, frame.length)
+        end
+      end
+
+      print output unless output.empty?
+    end
+
+    def self.toggle_menu(sel)
+      if app_state.menu_open == sel
+        app_state.set_menu_open(nil)
+      else
+        app_state.set_menu_open(sel)
       end
     end
 
@@ -613,9 +793,19 @@ module EvilCTF
     end
 
     def self.screen_size
+      width, height = app_state.screen_size
+      return [width, height] if width.to_i > 0 && height.to_i > 0
+
+      fallback_w = (TTY::Screen.width rescue 100)
+      fallback_h = (TTY::Screen.height rescue 30)
+      [fallback_w, fallback_h]
+    end
+
+    def self.refresh_screen_size!(bump: false)
       width = (TTY::Screen.width rescue 100)
       height = (TTY::Screen.height rescue 30)
-      [width, height]
+      app_state.set_screen_size(width, height)
+      app_state.bump_layout_version if bump
     end
 
     def self.fit_line(text, width)
@@ -624,6 +814,64 @@ module EvilCTF
       return t if t.length <= width
       return '…' if width == 1
       t[0, width - 1] + '…'
+    end
+
+    def self.wrap_lines(lines, width)
+      return [] if lines.nil? || lines.empty?
+
+      wrapped = []
+      lines.each do |line|
+        text = line.to_s.gsub("\r", "")
+        segments = text.split("\n", -1)
+        segments.each do |segment|
+          if width <= 0
+            wrapped << ''
+          elsif segment.empty?
+            wrapped << ''
+          else
+            segment.scan(/.{1,#{width}}/).each { |chunk| wrapped << chunk }
+          end
+        end
+      end
+      wrapped
+    end
+
+    # Keep typed input visible even when prompt text is long.
+    # We prioritize input visibility and compress prompt prefix first.
+    def self.build_prompt_display_line(prompt_text:, cli_input:, width:)
+      prompt = prompt_text.to_s
+      input = cli_input.to_s
+      return '' if width <= 0
+      plain = "#{prompt}#{input}"
+      return plain if plain.length <= width
+
+      return '…' if width == 1
+
+      min_input_width = [[(width * 0.5).to_i, 8].max, width].min
+
+      visible_input = if input.length <= min_input_width
+                        input
+                      elsif min_input_width <= 1
+                        '…'
+                      else
+                        tail = input[-(min_input_width - 1), min_input_width - 1]
+                        "…#{tail}"
+                      end
+
+      remaining_for_prompt = width - visible_input.length
+      return visible_input[-width, width] if remaining_for_prompt <= 0
+
+      visible_prompt = if prompt.length <= remaining_for_prompt
+                         prompt
+                       elsif remaining_for_prompt <= 1
+                         ''
+                       else
+                         tail = prompt[-(remaining_for_prompt - 1), remaining_for_prompt - 1]
+                         "…#{tail}"
+                       end
+
+      result = "#{visible_prompt}#{visible_input}"
+      result.length > width ? result[-width, width] : result
     end
 
     def self.prompt_value(prompt:, label:, default:, secret: false)
