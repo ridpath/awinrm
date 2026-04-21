@@ -4,6 +4,7 @@
 require 'optparse'
 require_relative 'session'
 require_relative 'connection'
+require_relative '../config/profiles'
 
 module EvilCTF
   module CLI
@@ -76,16 +77,10 @@ module EvilCTF
       # Profile loading: merge profile if --profile is given
 
       if options[:profile]
-        prof = nil
-        # Try profiles/NAME.yaml first, then config/profiles.yaml
-        prof_path1 = File.expand_path("../../profiles/#{options[:profile]}.yaml", __dir__)
-        prof_path2 = File.expand_path("../../config/profiles.yaml", __dir__)
-        if File.exist?(prof_path1)
-          prof = YAML.load_file(prof_path1)
-        elsif File.exist?(prof_path2)
-          all_profiles = YAML.load_file(prof_path2)
-          prof = all_profiles[options[:profile].to_s] if all_profiles
-        end
+        prof = EvilCTF::Config::Profiles.load_profile(
+          name: options[:profile],
+          root_path: File.expand_path('../..', __dir__)
+        )
         if prof
           # Accept all keys from profile, including username, user, password, hash, port, ssl, etc.
           options.merge!(prof.transform_keys(&:to_sym))

