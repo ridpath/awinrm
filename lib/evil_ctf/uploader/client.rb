@@ -8,6 +8,7 @@ require_relative '../logger'
 require_relative '../errors'
 require_relative '../utils'
 require_relative '../app_state'
+require_relative '../engine_audit'
 
 module EvilCTF
   require 'colorize'
@@ -21,7 +22,11 @@ module EvilCTF
       end
 
 
-      def upload_file(local_path, remote_path, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: true, xor_key: nil)
+      def upload_file(*args, local_path: nil, remote_path: nil, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: true, xor_key: nil)
+        if args.any?
+          local_path ||= args[0]
+          remote_path ||= args[1]
+        end
         unless File.exist?(local_path)
           puts '[!] Local file missing'.colorize(:red)
           raise ::EvilCTF::Errors::UploadError, 'local file missing'
@@ -172,6 +177,7 @@ module EvilCTF
             return true
           rescue => e
             @logger&.warn("[Uploader] File manager upload failed, falling back: #{e.message}")
+            EvilCTF::EngineAudit.error(message: 'file manager upload failed', error: e, source: 'uploader_client')
             begin
               EvilCTF::AppState.instance.clear_upload(upload_id)
             rescue
@@ -276,6 +282,7 @@ module EvilCTF
           end
         rescue => e
           @logger&.error("[Uploader] Upload failed during chunked transfer: #{e.class}: #{e.message}")
+          EvilCTF::EngineAudit.error(message: 'chunked upload failed', error: e, source: 'uploader_client')
           begin
             EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
           rescue
@@ -369,7 +376,11 @@ module EvilCTF
         end
       end
 
-      def download_file(remote_path, local_path, xor_key: nil, allow_empty: true)
+      def download_file(*args, remote_path: nil, local_path: nil, xor_key: nil, allow_empty: true)
+        if args.any?
+          remote_path ||= args[0]
+          local_path ||= args[1]
+        end
         requested_remote_path = remote_path.to_s
         resolved_remote_path = resolve_remote_path(remote_path: requested_remote_path, retries: 10, delay: 1)
         if resolved_remote_path && resolved_remote_path != requested_remote_path
@@ -439,6 +450,7 @@ module EvilCTF
         raise
       rescue => e
         @logger&.error("[Downloader] Download failed: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'download failed', error: e, source: 'uploader_client')
         raise ::EvilCTF::Errors::DownloadError, e.message
       end
 
@@ -461,6 +473,7 @@ module EvilCTF
         nil
       rescue => e
         @logger&.warn("[Downloader] Remote path resolution failed: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'remote path resolution failed', error: e, source: 'uploader_client')
         nil
       end
 
@@ -498,6 +511,7 @@ module EvilCTF
         marker.sub('MATCH::', '').strip
       rescue => e
         @logger&.warn("[Downloader] Match probe failed: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'remote match probe failed', error: e, source: 'uploader_client')
         nil
       end
 
@@ -612,6 +626,7 @@ module EvilCTF
         @logger&.warn("[Downloader] #{line}") if line && !line.empty?
       rescue => e
         @logger&.warn("[Downloader] Candidate listing failed: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'candidate listing failed', error: e, source: 'uploader_client')
       end
 
       def remote_path_exists?(remote_path:, retries:, delay:)
@@ -637,6 +652,7 @@ module EvilCTF
         false
       rescue => e
         @logger&.warn("[Downloader] Existence probe failed: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'existence probe failed', error: e, source: 'uploader_client')
         false
       end
     end

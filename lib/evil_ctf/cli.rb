@@ -12,7 +12,7 @@ module EvilCTF
       require 'yaml'
       options = {
         ip: nil, user: nil, password: nil, hash: nil,
-        port: 5985, ssl: false, auto_exec: false, stealth: false,
+        port: nil, ssl: false, auto_exec: false, stealth: false,
         random_names: false, auto_evasion: false, beacon: false,
         webhook: nil, logfile: nil, proxy: nil, profile: nil,
         list_tools: false, enum: nil, fresh: false, hosts: nil,
@@ -32,7 +32,7 @@ module EvilCTF
         opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
         opts.on('-H', '--hash HASH', 'NTLM hash')                        { |v| options[:hash] = v }
         opts.on('--hosts FILE', 'Multiple hosts file')                   { |v| options[:hosts] = v }
-        opts.on('--port PORT', Integer, 'Port (default: 5985)')          { |v| options[:port] = v }
+        opts.on('--port PORT', Integer, 'Port (default: 5985, or 5986 with --ssl)') { |v| options[:port] = v }
         opts.on('--ssl', 'Use HTTPS (5986 typical)')                     { options[:ssl] = true }
         opts.on('--auto-exec', 'Auto execute staged tools')              { options[:auto_exec] = true }
         opts.on('--stealth', 'Use ADS staging and random filenames') do
@@ -100,7 +100,8 @@ module EvilCTF
 
       # Connection validation before session
       if options[:verify]
-        endpoint = options[:endpoint] || "#{options[:ssl] ? 'https' : 'http'}://#{options[:ip]}:#{options[:port] || 5985}/wsman"
+        validation_port = options[:port] || (options[:ssl] ? 5986 : 5985)
+        endpoint = options[:endpoint] || "#{options[:ssl] ? 'https' : 'http'}://#{options[:ip]}:#{validation_port}/wsman"
         validation = EvilCTF::Session.test_connection(
           endpoint: endpoint,
           user: options[:user],
@@ -120,6 +121,8 @@ module EvilCTF
           puts validation[:report] if validation[:report]
           exit 1
         end
+        options[:prevalidated] = true
+        options[:validation_info] = validation
         puts "[+] Connection validated: #{validation[:hostname]}"
       end
 

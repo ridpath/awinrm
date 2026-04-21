@@ -3,14 +3,14 @@ require_relative 'uploader/client'
 module EvilCTF
   module Uploader
     # Backwards-compatible module-level wrappers
-    def self.upload_file(local_path, remote_path, shell, **opts)
+    def self.upload_file(local_path:, remote_path:, shell:, **opts)
       client = Client.new(shell)
-      client.upload_file(local_path, remote_path, **opts)
+      client.upload_file(local_path: local_path, remote_path: remote_path, **opts)
     end
 
-    def self.download_file(remote_path, local_path, shell, **opts)
+    def self.download_file(remote_path:, local_path:, shell:, **opts)
       client = Client.new(shell)
-      client.download_file(remote_path, local_path, **opts)
+      client.download_file(remote_path: remote_path, local_path: local_path, **opts)
     end
 
     # Interactive file operations menu (upload/download/ZIP)
@@ -99,7 +99,7 @@ module EvilCTF
             remote = remote_dir
           end
           begin
-            ok = client.upload_file(local, remote)
+            ok = client.upload_file(local_path: local, remote_path: remote)
             puts(ok ? "[+] Upload successful".colorize(:green) : "[!] Upload failed".colorize(:red))
           rescue => e
             puts "[!] Upload error: #{e.message}".colorize(:red)
@@ -115,7 +115,7 @@ module EvilCTF
           local = Readline.readline("Local destination path: ", true).strip
           Readline.completion_proc = nil
           begin
-            ok = client.download_file(remote, local)
+            ok = client.download_file(remote_path: remote, local_path: local)
             puts(ok ? "[+] Download successful".colorize(:green) : "[!] Download failed".colorize(:red))
           rescue => e
             puts "[!] Download error: #{e.message}".colorize(:red)
@@ -145,7 +145,7 @@ module EvilCTF
               end
             end
             puts "[*] Created ZIP: #{zip_path}".colorize(:cyan)
-            ok = client.upload_file(zip_path, remote)
+            ok = client.upload_file(local_path: zip_path, remote_path: remote)
             puts(ok ? "[+] ZIP upload successful".colorize(:green) : "[!] ZIP upload failed".colorize(:red))
           rescue => e
             puts "[!] ZIP/upload error: #{e.message}".colorize(:red)

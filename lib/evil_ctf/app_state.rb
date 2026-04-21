@@ -11,6 +11,7 @@ module EvilCTF
       @sessions = []
       @active_session = nil
       @running_tasks = {}
+      @task_queue = []
       @alerts = []
       @last_scan_time = nil
       @mode = :NORMAL
@@ -25,6 +26,11 @@ module EvilCTF
       @pane_focus = :sidebar
       @layout_version = 0
       @pending_connection = {}
+      @session_status = {
+        connected: false,
+        hostname: nil,
+        checked_at: nil
+      }
       @settings = {
         logging_enabled: false,
         theme: 'default',
@@ -50,6 +56,10 @@ module EvilCTF
       @mutex.synchronize { @active_session = s }
     end
 
+    def with_active_session
+      @mutex.synchronize { yield(@active_session) if block_given? }
+    end
+
     # Alias for controller APIs that refer to current session.
     def current_session
       active_session
@@ -61,6 +71,18 @@ module EvilCTF
 
     def running_tasks
       @mutex.synchronize { @running_tasks.dup }
+    end
+
+    def task_queue_snapshot
+      @mutex.synchronize { @task_queue.dup }
+    end
+
+    def enqueue_task(item)
+      @mutex.synchronize { @task_queue << item }
+    end
+
+    def dequeue_task
+      @mutex.synchronize { @task_queue.shift }
     end
 
     def add_task(id, info)
@@ -206,6 +228,14 @@ module EvilCTF
 
     def set_pending_connection(data)
       @mutex.synchronize { @pending_connection = (data || {}).dup }
+    end
+
+    def session_status
+      @mutex.synchronize { @session_status.dup }
+    end
+
+    def set_session_status(status)
+      @mutex.synchronize { @session_status = @session_status.merge((status || {}).dup) }
     end
   end
 end

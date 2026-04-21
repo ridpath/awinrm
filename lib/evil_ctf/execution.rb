@@ -1,27 +1,65 @@
 # frozen_string_literal: true
 require 'ostruct'
+require 'concurrent'
+require 'securerandom'
 require_relative 'shell_adapter'
+require_relative 'sanitizer'
+require_relative 'engine_audit'
 
 module EvilCTF
   module Execution
+    module_function
+
+    def run_with_timer(timeout:, &block)
+      worker = Thread.new do
+        begin
+          block.call
+        rescue StandardError => e
+          e
+        end
+      end
+      worker.report_on_exception = false if worker.respond_to?(:report_on_exception=)
+
+      # TimerTask is used as required for timeout lifecycle management.
+      timer = Concurrent::TimerTask.new(execution_interval: timeout.to_f, run_now: false) do
+        # no-op: join timeout controls termination deterministically
+      end
+
+      timer.execute
+
+      finished = worker.join(timeout.to_f)
+      return :timed_out if finished.nil? || worker.alive?
+
+      result = worker.value
+      raise result if result.is_a?(StandardError)
+
+      result
+    rescue StandardError => e
+      EvilCTF::EngineAudit.error(message: 'run_with_timer failed', error: e, source: 'execution')
+      raise
+    ensure
+      timer&.shutdown
+      worker&.kill if worker&.alive?
+    end
+
     # Run a PowerShell command/script via a shell or adapter with a local timeout.
     # Returns OpenStruct with :ok (bool), :exitcode (Integer or nil), :output (String).
     def self.run(shell_or_adapter, ps, timeout: 60)
       adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
-      result = nil
+      sanitized = EvilCTF::Sanitizer.sanitize_command(command: ps)
+      adapter_type = adapter.respond_to?(:adapter_info) ? adapter.adapter_info[:type] : nil
 
-      runner = Thread.new do
-        begin
-          result = adapter.run(ps)
-        rescue => e
-          result = OpenStruct.new(output: "ERROR: #{e.class}: #{e.message}", exitcode: 255)
-        end
-      end
+      # WinRM command execution performs remote cleanup inside the gem. Forcing
+      # local thread-kill timeouts leaves orphaned remote commands behind, which
+      # eventually trips the per-shell concurrent command quota. Run WinRM calls
+      # synchronously and reserve kill-based timeouts for non-WinRM adapters.
+      result = if adapter_type == :winrm
+                 adapter.run(sanitized)
+               else
+                 run_with_timer(timeout: timeout) { adapter.run(sanitized) }
+               end
 
-      finished = runner.join(timeout)
-      if finished.nil? || runner.alive?
-        # Timeout: return explicit failure and do not try to guess remote state
-        begin; runner.kill; rescue; end
+      if result == :timed_out
         return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: TIMED_OUT after #{timeout}s")
       end
 
@@ -36,6 +74,9 @@ module EvilCTF
 
       ok = (exitcode == 0)
       OpenStruct.new(ok: ok, exitcode: exitcode, output: out)
+    rescue StandardError => e
+      EvilCTF::EngineAudit.error(message: 'execution.run failed', error: e, source: 'execution')
+      OpenStruct.new(ok: false, exitcode: 255, output: "ERROR: #{e.class}: #{e.message}")
     end
 
     def self.normalize_output(s)
@@ -70,19 +111,20 @@ module EvilCTF
     # similar to `run` when the job completes or on timeout.
     def self.stream(shell_or_adapter, ps, timeout: 300, poll_interval: 1)
       adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
-      token = "stream_#{Time.now.to_i}_#{rand(9999)}"
+      sanitized = EvilCTF::Sanitizer.sanitize_command(command: ps)
+      token = "stream_#{Time.now.to_i}_#{SecureRandom.hex(2)}"
       remote_tmp = "C:/Users/Public/evilctf_#{token}.log"
 
       # Start background job that runs the command and appends stdout/stderr to file
       start_job = <<~PS
         try {
-          $j = Start-Job -ScriptBlock { #{ps} 2>&1 | Out-File -FilePath '#{remote_tmp}' -Encoding UTF8 -Append }
+          $j = Start-Job -ScriptBlock { #{sanitized} 2>&1 | Out-File -FilePath '#{remote_tmp}' -Encoding UTF8 -Append }
           if ($j) { Write-Output $j.Id } else { Write-Output "ERROR: Failed to start job" }
         } catch { Write-Output "ERROR: $($_.Exception.Message)" }
       PS
 
       begin
-        start_res = adapter.run(start_job)
+        start_res = run(shell_or_adapter, start_job, timeout: 20)
       rescue => e
         return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
       end
@@ -90,8 +132,12 @@ module EvilCTF
       job_id = start_res && start_res.output ? start_res.output.to_s.scan(/\d+/).first.to_i : nil
       unless job_id && job_id > 0
         # fallback: if we couldn't start a job, run directly
-        res = adapter.run(ps)
-        return OpenStruct.new(ok: true, exitcode: (res.respond_to?(:exitcode) ? res.exitcode : nil), output: res && res.output ? res.output.to_s : '')
+        res = run(shell_or_adapter, sanitized, timeout: timeout)
+        return OpenStruct.new(
+          ok: (res && res.respond_to?(:ok) ? !!res.ok : false),
+          exitcode: (res && res.respond_to?(:exitcode) ? res.exitcode : nil),
+          output: (res && res.output ? res.output.to_s : '')
+        )
       end
 
       elapsed = 0
@@ -100,17 +146,19 @@ module EvilCTF
         while elapsed < timeout
           # read remote tmp file content (may be empty)
           read_ps = "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }"
-          read_res = adapter.run(read_ps)
+          read_res = run(shell_or_adapter, read_ps, timeout: 20)
           content = read_res && read_res.output ? read_res.output.to_s : ''
           if content && content.length > last_content.length
             new_text = content[last_content.length..-1]
-            yield new_text if block_given? && new_text && !new_text.empty?
+            emit_nonblocking(text: new_text) do |chunk|
+              yield chunk if block_given? && chunk && !chunk.empty?
+            end
             last_content = content
           end
 
           # check job state
           state_ps = "try { (Get-Job -Id #{job_id} -ErrorAction SilentlyContinue).State } catch { 'Unknown' }"
-          state_res = adapter.run(state_ps)
+          state_res = run(shell_or_adapter, state_ps, timeout: 20)
           state = state_res && state_res.output ? state_res.output.to_s.strip : nil
           break if state && state =~ /Completed|Failed|Stopped/i
 
@@ -119,7 +167,7 @@ module EvilCTF
         end
 
         # final read
-        read_res = adapter.run("try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }")
+        read_res = run(shell_or_adapter, "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }", timeout: 20)
         final_output = read_res && read_res.output ? read_res.output.to_s : ''
 
         # cleanup job and tmp file
@@ -134,10 +182,36 @@ module EvilCTF
 
         OpenStruct.new(ok: true, exitcode: nil, output: final_output)
       rescue => e
+        EvilCTF::EngineAudit.error(message: 'execution.stream failed', error: e, source: 'execution')
         begin; adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue"); rescue; end
         begin; adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue"); rescue; end
         return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
       end
+    end
+
+    def self.emit_nonblocking(text:)
+      return if text.to_s.empty?
+
+      reader, writer = IO.pipe
+      writer.write(text)
+      writer.close
+
+      loop do
+        ready = IO.select([reader], nil, nil, 0.01)
+        break unless ready
+
+        begin
+          chunk = reader.read_nonblock(8192)
+          yield chunk if block_given?
+        rescue IO::WaitReadable
+          next
+        rescue EOFError
+          break
+        end
+      end
+    ensure
+      reader&.close
+      writer&.close unless writer&.closed?
     end
   end
 end

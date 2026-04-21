@@ -11,6 +11,8 @@ require_relative 'utils'
 require_relative 'execution'
 require_relative 'tui'
 require_relative 'command_dispatcher'
+require_relative 'session_heartbeat'
+require_relative 'engine_audit'
 require 'readline'
 require 'timeout'
 require 'evil_ctf/uploader'
@@ -26,6 +28,7 @@ module EvilCTF::Session
                            kerberos: false, realm: nil, keytab: nil,
                            debug: false, transport: nil, user_agent: nil,
                            timeout: 10)
+    conn = nil
     begin
       conn = EvilCTF::Connection.build_full(
         endpoint: endpoint,
@@ -75,6 +78,18 @@ module EvilCTF::Session
       end
 
       { ok: false, error: "#{e.class}: #{e.message}" }
+    ensure
+      # test_connection creates a throwaway connection used only for validation.
+      begin
+        conn.close if conn && conn.respond_to?(:close)
+      rescue
+        nil
+      end
+      begin
+        conn.reset if conn && conn.respond_to?(:reset)
+      rescue
+        nil
+      end
     end
   end
 
@@ -156,18 +171,23 @@ module EvilCTF::Session
 
     # Validate connection and capture validation info
     validation_info = nil
-    begin
-      validation_info = EvilCTF::ConnectionValidator.validate(conn, timeout: 10)
-      if validation_info[:ok]
-        puts "[+] Connection validated: #{validation_info[:hostname]}"
-      else
-        puts "[!] Connection validation failed: #{validation_info[:error]}"
+    if session_options[:prevalidated] && session_options[:validation_info].is_a?(Hash)
+      validation_info = session_options[:validation_info]
+    else
+      begin
+        validation_info = EvilCTF::ConnectionValidator.validate(conn, timeout: 10)
+        if validation_info[:ok]
+          puts "[+] Connection validated: #{validation_info[:hostname]}"
+        else
+          puts "[!] Connection validation failed: #{validation_info[:error]}"
+        end
+      rescue => e
+        validation_info = { ok: false, hostname: nil, error: "Validation error: #{e.message}" }
       end
-    rescue => e
-      validation_info = { ok: false, hostname: nil, error: "Validation error: #{e.message}" }
     end
 
     shell = nil
+    heartbeat = nil
     begin
       shell = conn.shell(:powershell)
       logger = SessionLogger.new(session_options[:logfile])
@@ -178,6 +198,17 @@ module EvilCTF::Session
         function prompt { "PS $pwd> " }
         Set-Alias __exit__ Exit-PSSession
       })
+
+      if session_options[:tui] || session_options[:enable_heartbeat]
+        heartbeat = EvilCTF::SessionHeartbeat.new(
+          shell: shell,
+          interval_seconds: 30,
+          on_update: lambda { |status|
+            session_options[:session_status] = status
+          }
+        )
+        heartbeat.start
+      end
 
       puts "[+] Connected to #{orig_ip}"
 
@@ -190,6 +221,14 @@ module EvilCTF::Session
 
       setup_autocomplete(history)
       enum_cache = {}
+      prompt_cache = '> '
+      begin
+        prompt_probe = EvilCTF::Execution.run(shell, 'prompt', timeout: 2)
+        if prompt_probe.ok && prompt_probe.output && !prompt_probe.output.to_s.empty?
+          prompt_cache = normalize_readline_prompt(prompt_probe.output)
+        end
+      rescue
+      end
 
       # If the user requested the TTY-based UI, hand off control to the
       # TUI renderer which will perform its own background polling and
@@ -239,8 +278,7 @@ module EvilCTF::Session
 
         begin
           Timeout.timeout(1800) do
-            raw_prompt = shell.run('prompt').output
-            prompt = normalize_readline_prompt(raw_prompt)
+            prompt = prompt_cache
             # Use a non-blocking approach for readline to allow interrupt detection
             input = nil
 
@@ -414,6 +452,11 @@ module EvilCTF::Session
       end
     ensure
       # Ensure cleanup happens even on interruption or errors
+      begin
+        heartbeat&.stop
+      rescue StandardError => e
+        EvilCTF::EngineAudit.error(message: 'failed to stop heartbeat', error: e, source: 'session')
+      end
       EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
       shell.close if shell
     end
@@ -477,7 +520,9 @@ module EvilCTF::Session
     prompt = prompt.gsub('\\r\\n', "\n").gsub('\\n', "\n")
     prompt = prompt.gsub("\r\n", "\n").gsub("\r", "\n")
     prompt = prompt.rstrip
-    prompt = '> ' if prompt.empty?
+    if prompt.empty? || prompt.include?('TIMED_OUT') || prompt.start_with?('ERROR:')
+      prompt = '> '
+    end
     prompt.end_with?(' ') ? prompt : "#{prompt} "
   end
 

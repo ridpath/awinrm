@@ -136,17 +136,9 @@ module EvilCTF
       rescue => e
         validation_result = { ok: false, hostname: nil, error: "#{e.class}: #{e.message}" }
       ensure
+        # Only tear down the validation shell. The connection lifecycle is
+        # owned by the caller and may be reused after validation.
         shell&.close
-        begin
-          conn.close if conn.respond_to?(:close)
-        rescue
-          nil
-        end
-        begin
-          conn.reset if conn.respond_to?(:reset)
-        rescue
-          nil
-        end
       end
 
       validation_result
