@@ -1,11 +1,13 @@
 # Ignore Ruby, Bundler, and system files
 /vendor/
+/.bundle/
 /tmp/
 *.log
 *.swp
 *.swo
 *.DS_Store
 /.vscode/
+/log/
 /loot/
 /profiles/*.yaml
 

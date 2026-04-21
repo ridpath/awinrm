@@ -3,6 +3,8 @@
 
 require 'optparse'
 require_relative 'session'
+require_relative 'connection'
+require_relative '../config/profiles'
 
 module EvilCTF
   module CLI
@@ -16,7 +18,8 @@ module EvilCTF
         list_tools: false, enum: nil, fresh: false, hosts: nil,
         kerberos: false, realm: nil, keytab: nil,
         banner_mode: :minimal, debug: false,
-        ipv6: nil, ipv6_hostname: nil
+        ipv6: nil, ipv6_hostname: nil,
+        verify: true
       }
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: evil-ctf.rb [options]'
@@ -53,9 +56,11 @@ module EvilCTF
         opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
         opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }
         opts.on('--banner MODE', 'Banner mode (minimal|expanded)')       { |v| options[:banner_mode] = v&.to_sym }
+        opts.on('--tui', 'Launch interactive TTY-based UI (uses tty gems)') { options[:tui] = true }
         opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
         opts.on('--log-session', 'Enable session logging to disk (log/ directory)') { options[:log_session] = true }
         opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
+        opts.on('--no-verify', 'Skip connection validation')       { options[:verify] = false }
         opts.on('-h', '--help', 'Show help')                             { puts opts; exit 0 }
       end
 
@@ -72,16 +77,10 @@ module EvilCTF
       # Profile loading: merge profile if --profile is given
 
       if options[:profile]
-        prof = nil
-        # Try profiles/NAME.yaml first, then config/profiles.yaml
-        prof_path1 = File.expand_path("../../profiles/#{options[:profile]}.yaml", __dir__)
-        prof_path2 = File.expand_path("../../config/profiles.yaml", __dir__)
-        if File.exist?(prof_path1)
-          prof = YAML.load_file(prof_path1)
-        elsif File.exist?(prof_path2)
-          all_profiles = YAML.load_file(prof_path2)
-          prof = all_profiles[options[:profile].to_s] if all_profiles
-        end
+        prof = EvilCTF::Config::Profiles.load_profile(
+          name: options[:profile],
+          root_path: File.expand_path('../..', __dir__)
+        )
         if prof
           # Accept all keys from profile, including username, user, password, hash, port, ssl, etc.
           options.merge!(prof.transform_keys(&:to_sym))
@@ -99,7 +98,41 @@ module EvilCTF
         return 1
       end
 
-      Session.run_session(options)
+      # Connection validation before session
+      if options[:verify]
+        endpoint = options[:endpoint] || "#{options[:ssl] ? 'https' : 'http'}://#{options[:ip]}:#{options[:port] || 5985}/wsman"
+        validation = EvilCTF::Session.test_connection(
+          endpoint: endpoint,
+          user: options[:user],
+          password: options[:password],
+          hash: options[:hash],
+          kerberos: options[:kerberos],
+          realm: options[:realm],
+          keytab: options[:keytab],
+          ssl: options[:ssl],
+          debug: options[:debug],
+          transport: options[:transport],
+          user_agent: options[:user_agent],
+          timeout: 10
+        )
+        unless validation[:ok]
+          puts "[!] Connection validation failed: #{validation[:error]}"
+          puts validation[:report] if validation[:report]
+          exit 1
+        end
+        puts "[+] Connection validated: #{validation[:hostname]}"
+      end
+
+      result = Session.run_session(options)
+      
+      # Check for validation failure from session
+      if result.is_a?(Array) && !result[0]
+        puts "[!] Session validation failed: #{result[1]}" if result[1]
+        exit 1
+      elsif !result
+        puts "[!] Session failed"
+        exit 1
+      end
       0
     end
   end

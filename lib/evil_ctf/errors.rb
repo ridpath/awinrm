@@ -6,5 +6,6 @@ module EvilCTF
     class UploadError < Error; end
     class DownloadError < Error; end
     class CryptoError < Error; end
+    class ConnectionValidationFailed < Error; end
   end
 end

@@ -62,6 +62,23 @@ module EvilCTF::Banner
 
   # Show banner with optional color
   def self.show_banner(shell, options, mode: :minimal, no_color: false)
+    # If the user requested the TUI, attempt to launch it and return.
+      if options && (options[:tui] || options[:use_tui] || ENV['EVILCTF_TUI'] == '1')
+        begin
+          require 'evil_ctf/tui'
+          # Prefer the interactive Rainfrog-like loop when available
+          if EvilCTF::TUI.respond_to?(:start_rainfrog)
+            EvilCTF::TUI.start_rainfrog(shell, options)
+          else
+            EvilCTF::TUI.start(shell, options)
+          end
+        rescue LoadError
+          puts "  [!] TTY TUI not available. Install tty gems to enable TUI.".yellow
+        rescue => e
+          puts "  [!] Failed to start TUI: #{e.message}".red
+        end
+        return
+      end
     # Disable color if requested
     if no_color
       # Use plain text

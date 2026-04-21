@@ -1,0 +1,12 @@
+#!/bin/bash
+# Wrapper script to automatically use bundle exec with proper sudo handling
+
+# Check if running with sudo (check SUDO_USER or run without sudo)
+if [ -z "$SUDO_USER" ]; then
+  # Not running with sudo - check if we need it (for /etc/hosts modification)
+  # Just run with bundle exec
+  exec bundle exec ruby "$(dirname "${BASH_SOURCE[0]}")/evil-ctf.rb" "$@"
+else
+  # Running with sudo - preserve environment and use bundle exec
+  exec bundle exec ruby "$(dirname "${BASH_SOURCE[0]}")/evil-ctf.rb" "$@"
+fi
