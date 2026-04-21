@@ -164,6 +164,9 @@ module EvilCTF
               res = @shell_adapter.run(ps)
               remote_raw = res && res.output ? res.output.to_s : ''
               remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
+              if local_sha256 != remote_hash
+                return { ok: false, local_hash: local_sha256, remote_hash: remote_hash, error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
+              end
               return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: remote_hash }
             end
             return true
@@ -332,6 +335,13 @@ module EvilCTF
           if remote_hash.nil? || remote_hash.empty?
             cleaned = remote_raw.gsub(/[^0-9A-Fa-f]/, '')
             remote_hash = cleaned[0,64] if cleaned && cleaned.length >= 64
+          end
+          if local_sha256 != remote_hash
+            begin
+              EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
+            rescue
+            end
+            return { ok: false, local_hash: local_sha256, remote_hash: remote_hash, error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
           end
           begin
             EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
