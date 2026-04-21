@@ -1,4 +1,5 @@
 # lib/evil_ctf/shell_wrapper.rb
+require_relative '../compat/silence_warnings'
 require 'winrm'
 require 'ipaddr'
 

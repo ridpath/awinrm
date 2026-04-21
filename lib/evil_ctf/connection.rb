@@ -1,39 +1,55 @@
 # frozen_string_literal: true
+unless defined?(Fixnum)
+  Fixnum = Integer
+end
+
+require_relative '../compat/silence_warnings'
 require 'winrm' rescue nil
 
 
 module EvilCTF
   module Connection
     # Centralized WinRM connection builder supporting all options and robust error handling
-    # opts: endpoint, user, password, hash, kerberos, realm, keytab, ssl, debug, transport
-    def self.build_full(opts = {})
+    # Ruby 4.0 migration note:
+    # Prefer keyword arguments and keep a temporary Hash shim for legacy callers.
+    def self.build_full(opts = nil, **kwargs)
+      if opts && !opts.is_a?(Hash)
+        raise ArgumentError, 'build_full expects keyword args (or a legacy Hash)'
+      end
+
+      if opts
+        warn '[DEPRECATION] build_full(Hash) is deprecated; use keyword arguments instead.'
+      end
+
+      params = (opts || {}).merge(kwargs)
+
       return nil unless defined?(WinRM::Connection)
-      endpoint = opts[:endpoint] || opts[:url]
-      user = opts[:user]
-      pass = opts[:password]
-      hash = opts[:hash]
-      kerberos = opts[:kerberos]
-      realm = opts[:realm]
-      keytab = opts[:keytab]
-      ssl = opts[:ssl]
-      debug = opts[:debug]
-      transport = opts[:transport]
+      endpoint = params[:endpoint] || params[:url]
+      user = params[:user]
+      pass = params[:password]
+      hash = params[:hash]
+      kerberos = params[:kerberos]
+      realm = params[:realm]
+      keytab = params[:keytab]
+      ssl = params[:ssl]
+      debug = params[:debug]
+      transport = params[:transport]
 
       # Default port logic
-      if endpoint.nil? && opts[:ip]
-        port = opts[:port] || (ssl ? 5986 : 5985)
+      if endpoint.nil? && params[:ip]
+        port = params[:port] || (ssl ? 5986 : 5985)
         scheme = ssl ? 'https' : 'http'
-        endpoint = "#{scheme}://#{opts[:ip]}:#{port}/wsman"
+        endpoint = "#{scheme}://#{params[:ip]}:#{port}/wsman"
       end
 
       options = {
-        no_ssl_peer_verification: true,
+        no_ssl_peer_verification: !!params[:ssl_no_verify],
         debug: !!debug
       }
       # Inject custom User-Agent if provided
-      if opts[:user_agent]
+      if params[:user_agent]
         options[:http_client] = WinRM::HTTP::HttpTransport.new(endpoint, {})
-        options[:http_client].instance_variable_get(:@httpcli).default_header['User-Agent'] = opts[:user_agent]
+        options[:http_client].instance_variable_get(:@httpcli).default_header['User-Agent'] = params[:user_agent]
       end
 
       begin
@@ -65,17 +81,11 @@ module EvilCTF
           )
         end
         return conn
-      rescue WinRM::WinRMEndpointError => e
-        warn "[!] WARNING - Connection failed for #{endpoint} (endpoint error): #{e.message}"
-      rescue WinRM::WinRMAuthenticationError => e
-        warn "[!] WARNING - Authentication failed for #{user}@#{endpoint}: #{e.message}"
-      rescue WinRM::WinRMTransportError => e
-        warn "[!] WARNING - Transport error for #{endpoint}: #{e.message}"
-      rescue WinRM::WinRMEndpointUnavailableError => e
-        warn "[!] WARNING - Endpoint unavailable for #{endpoint}: #{e.message}"
-      rescue WinRM::WinRMSessionError => e
-        warn "[!] WARNING - Session creation failed for #{endpoint}: #{e.message}"
       rescue => e
+        # The WinRM gem defines several specific exception classes across
+        # versions; to avoid uninitialized constant errors on older/newer
+        # versions and Ruby 3 compatibility issues, catch all errors here
+        # and give a concise warning message.
         warn "[!] WARNING - Connection error for #{endpoint}: #{e.class}: #{e.message}"
       end
       nil
@@ -101,6 +111,45 @@ module EvilCTF
       rescue
         nil
       end
+    end
+  end
+
+  # Validator class for testing WinRM connection validity
+  class ConnectionValidator
+    def self.validate(conn, timeout: 5)
+      shell = nil
+      result = nil
+      validation_result = nil
+
+      begin
+        shell = conn.shell(:powershell)
+        result = shell.run("hostname", timeout: timeout)
+        hostname = result.output.to_s.strip
+
+        validation_result = { ok: true, hostname: hostname }
+      rescue WinRM::WinRMAuthenticationError => e
+        validation_result = { ok: false, hostname: nil, error: "AuthenticationError: #{e.message}" }
+      rescue WinRM::WinRMEndpointError => e
+        validation_result = { ok: false, hostname: nil, error: "EndpointError: #{e.message}" }
+      rescue WinRM::WinRMAuthorizationError => e
+        validation_result = { ok: false, hostname: nil, error: "AuthorizationError: #{e.message}" }
+      rescue => e
+        validation_result = { ok: false, hostname: nil, error: "#{e.class}: #{e.message}" }
+      ensure
+        shell&.close
+        begin
+          conn.close if conn.respond_to?(:close)
+        rescue
+          nil
+        end
+        begin
+          conn.reset if conn.respond_to?(:reset)
+        rescue
+          nil
+        end
+      end
+
+      validation_result
     end
   end
 end

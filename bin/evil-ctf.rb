@@ -4,6 +4,7 @@
 # AWINRM CTF Edition
 
 require 'optparse'
+require_relative '../lib/compat/silence_warnings'
 require 'winrm'
 require 'ipaddr'
 require 'socket'
@@ -40,6 +41,16 @@ module EvilCTF; end
 base_path = File.expand_path(File.dirname(__FILE__) + '/..')
 lib_path  = File.join(base_path, 'lib')
 $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
+
+# Auto-setup Bundler when the user requested the TUI so gems from
+# `vendor/bundle` are available even when running with plain `ruby`.
+if ARGV.any? { |a| a.to_s.start_with?('--tui') || a.to_s == '--tui' }
+  begin
+    require 'bundler/setup'
+  rescue LoadError
+    # bundler not available system-wide; user can run with `bundle exec` instead
+  end
+end
 
 
 # Load modular components

