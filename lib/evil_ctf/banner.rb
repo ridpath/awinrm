@@ -1,6 +1,7 @@
 # lib/evil_ctf/banner.rb
 
 require 'colorize'
+require_relative 'execution'
 
 module EvilCTF::Banner
   # Color helper module
@@ -137,10 +138,33 @@ module EvilCTF::Banner
 
     # System Info
     begin
-      hostname = shell.run('hostname').output.strip
-      current_user = shell.run('[Security.Principal.WindowsIdentity]::GetCurrent().Name').output.strip
-      integrity = shell.run('whoami /groups | findstr "Mandatory Label" | findstr /v "Level"').output.strip.split.first || "Unknown"
-      domain = shell.run('(Get-WmiObject Win32_ComputerSystem).Domain').output.strip
+      probe_ps = <<~POWERSHELL
+        try {
+          $h = hostname
+          $u = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+          $d = (Get-WmiObject Win32_ComputerSystem).Domain
+          $i = (whoami /groups | findstr "Mandatory Label" | findstr /v "Level" | Select-Object -First 1)
+          Write-Output "HOST|||$h"
+          Write-Output "USER|||$u"
+          Write-Output "DOMAIN|||$d"
+          Write-Output "INTEGRITY|||$i"
+        } catch {
+          Write-Output "PROBE_ERROR|||$($_.Exception.Message)"
+        }
+      POWERSHELL
+
+      probe_res = EvilCTF::Execution.run(shell, probe_ps, timeout: 7)
+      probe_out = probe_res.output.to_s
+
+      hostname = probe_out.lines.find { |ln| ln.start_with?('HOST|||') }.to_s.sub('HOST|||', '').strip
+      current_user = probe_out.lines.find { |ln| ln.start_with?('USER|||') }.to_s.sub('USER|||', '').strip
+      domain = probe_out.lines.find { |ln| ln.start_with?('DOMAIN|||') }.to_s.sub('DOMAIN|||', '').strip
+      integrity = probe_out.lines.find { |ln| ln.start_with?('INTEGRITY|||') }.to_s.sub('INTEGRITY|||', '').strip.split.first.to_s
+
+      hostname = 'Unknown' if hostname.empty? || hostname.include?('TIMED_OUT') || hostname.start_with?('ERROR:')
+      current_user = 'Unknown' if current_user.empty? || current_user.include?('TIMED_OUT') || current_user.start_with?('ERROR:')
+      domain = 'Unknown' if domain.empty? || domain.include?('TIMED_OUT') || domain.start_with?('ERROR:')
+      integrity = 'Unknown' if integrity.to_s.empty? || integrity.to_s.start_with?('ERROR:')
     rescue => e
       hostname = "Unknown"
       current_user = "Unknown"
@@ -157,7 +181,7 @@ module EvilCTF::Banner
     # Privilege Check
     puts "\n".cyan + "PRIVILEGE CHECK:".cyan
     begin
-      priv_check = shell.run('whoami /priv').output
+      priv_check = EvilCTF::Execution.run(shell, 'whoami /priv', timeout: 10).output.to_s
       if priv_check.include?('SeDebugPrivilege')
         puts "  [!] SeDebugPrivilege - LSASS access possible".red
       end
@@ -170,7 +194,8 @@ module EvilCTF::Banner
 
     # Defender Status
     begin
-      defender = shell.run('(Get-MpComputerStatus).RealTimeProtectionEnabled').output.strip
+      defender = EvilCTF::Execution.run(shell, '(Get-MpComputerStatus).RealTimeProtectionEnabled', timeout: 8).output.to_s.strip
+      defender = '' if defender.include?('TIMED_OUT')
       status = defender == 'True' ? 'ENABLED' : 'DISABLED'
       puts "  Defender     : #{status == 'ENABLED' ? status.green : status.red}".white
     rescue => e
@@ -189,39 +214,34 @@ module EvilCTF::Banner
     puts "\n".cyan + "QUICK FLAG SCAN".cyan
     begin
       ps = <<~POWERSHELL
-        $flag_locations = @(
-          "C:\\flag.txt", "C:\\user.txt", "C:\\root.txt",
-          "C:\\Users\\*\\Desktop\\*flag*", "C:\\Users\\*\\Desktop\\*.txt",
-          "C:\\Users\\*\\Documents\\*flag*", "C:\\Users\\*\\Downloads\\*flag*",
-          "C:\\Users\\*\\Desktop\\*", "C:\\Users\\*\\Documents\\*", "C:\\Users\\*\\Downloads\\*",
-          "C:\\Users\\*\\*"
+        $paths = @(
+          "C:\\flag.txt",
+          "C:\\user.txt",
+          "C:\\root.txt",
+          "C:\\Users\\Public\\flag.txt",
+          "C:\\Users\\*\\Desktop\\flag.txt",
+          "C:\\Users\\*\\Desktop\\user.txt",
+          "C:\\Users\\*\\Desktop\\root.txt"
         )
-        $flag_patterns = @('flag\{.*?\}', 'CTF\{.*?\}', 'HTB\{.*?\}')
-        foreach ($pattern in $flag_locations) {
-          Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+        foreach ($p in $paths) {
+          Get-ChildItem -Path $p -ErrorAction SilentlyContinue | ForEach-Object {
             $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-            if ($_.Name -ieq 'flag.txt' -or $_.Name -ieq 'user.txt' -or $_.Name -ieq 'root.txt') {
-              if ($content -and $content.Trim()) {
-                Write-Output "FLAGFOUND|||$($_.FullName)|||$content"
-              }
-            } else {
-              foreach ($regex in $flag_patterns) {
-                if ($content -match $regex) {
-                  $matches = [regex]::Matches($content, $regex)
-                  foreach ($m in $matches) {
-                    Write-Output "FLAGFOUND|||$($_.FullName)|||$($m.Value)"
-                  }
-                }
-              }
+            if ($content -and $content.Trim()) {
+              Write-Output "FLAGFOUND|||$($_.FullName)|||$($content.Trim())"
             }
           }
         }
       POWERSHELL
-      result = shell.run(ps)
+      result = EvilCTF::Execution.run(shell, ps, timeout: 5)
+      result_output = result.output.to_s
+      if !result.ok && result.output.to_s.include?('TIMED_OUT')
+        puts '  [ ] Flag scan timed out (skipped to keep session responsive)'.yellow
+        result_output = ''
+      end
       require 'set'
       flags_found = false
       seen = Set.new
-      result.output.each_line do |line|
+      result_output.each_line do |line|
         next unless line.include?("FLAGFOUND|||")
         path, value = line.strip.split("|||", 3)[1..2]
         key = "#{path}|||#{value.strip}"

