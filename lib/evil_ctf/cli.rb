@@ -3,6 +3,7 @@
 
 require 'optparse'
 require_relative 'session'
+require_relative 'connection'
 
 module EvilCTF
   module CLI
@@ -16,7 +17,8 @@ module EvilCTF
         list_tools: false, enum: nil, fresh: false, hosts: nil,
         kerberos: false, realm: nil, keytab: nil,
         banner_mode: :minimal, debug: false,
-        ipv6: nil, ipv6_hostname: nil
+        ipv6: nil, ipv6_hostname: nil,
+        verify: true
       }
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: evil-ctf.rb [options]'
@@ -57,6 +59,7 @@ module EvilCTF
         opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
         opts.on('--log-session', 'Enable session logging to disk (log/ directory)') { options[:log_session] = true }
         opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
+        opts.on('--no-verify', 'Skip connection validation')       { options[:verify] = false }
         opts.on('-h', '--help', 'Show help')                             { puts opts; exit 0 }
       end
 
@@ -100,7 +103,44 @@ module EvilCTF
         return 1
       end
 
-      Session.run_session(options)
+      # Connection validation before session
+      if options[:verify]
+        endpoint = options[:endpoint] || "#{options[:ssl] ? 'https' : 'http'}://#{options[:ip]}:#{options[:port] || 5985}/wsman"
+        conn = EvilCTF::Connection.build_full(
+          endpoint: endpoint,
+          user: options[:user],
+          password: options[:password],
+          hash: options[:hash],
+          kerberos: options[:kerberos],
+          realm: options[:realm],
+          keytab: options[:keytab],
+          ssl: options[:ssl],
+          debug: options[:debug],
+          transport: options[:transport],
+          user_agent: options[:user_agent]
+        )
+        unless conn
+          puts "[!] Connection failed: Could not create connection to #{endpoint}"
+          exit 1
+        end
+        validation = EvilCTF::ConnectionValidator.validate(conn)
+        unless validation[:ok]
+          puts "[!] Connection validation failed: #{validation[:error]}"
+          exit 1
+        end
+        puts "[+] Connection validated: #{validation[:hostname]}"
+      end
+
+      result = Session.run_session(options)
+      
+      # Check for validation failure from session
+      if result.is_a?(Array) && !result[0]
+        puts "[!] Session validation failed: #{result[1]}" if result[1]
+        exit 1
+      elsif !result
+        puts "[!] Session failed"
+        exit 1
+      end
       0
     end
   end

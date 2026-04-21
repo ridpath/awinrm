@@ -76,9 +76,8 @@ module EvilCTF
       # Start background job that runs the command and appends stdout/stderr to file
       start_job = <<~PS
         try {
-          Start-Job -ScriptBlock { #{ps} 2>&1 | Out-File -FilePath '#{remote_tmp}' -Encoding UTF8 -Append } | Out-Null
-          $j = (Get-Job | Where-Object { $_.State -eq 'Running' } | Select-Object -First 1).Id
-          Write-Output $j
+          $j = Start-Job -ScriptBlock { #{ps} 2>&1 | Out-File -FilePath '#{remote_tmp}' -Encoding UTF8 -Append }
+          if ($j) { Write-Output $j.Id } else { Write-Output "ERROR: Failed to start job" }
         } catch { Write-Output "ERROR: $($_.Exception.Message)" }
       PS
 

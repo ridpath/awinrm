@@ -31,7 +31,7 @@ module EvilCTF
       end
 
       options = {
-        no_ssl_peer_verification: true,
+        no_ssl_peer_verification: !!opts[:ssl_no_verify],
         debug: !!debug
       }
       # Inject custom User-Agent if provided
@@ -99,6 +99,45 @@ module EvilCTF
       rescue
         nil
       end
+    end
+  end
+
+  # Validator class for testing WinRM connection validity
+  class ConnectionValidator
+    def self.validate(conn, timeout: 5)
+      shell = nil
+      result = nil
+      validation_result = nil
+
+      begin
+        shell = conn.shell(:powershell)
+        result = shell.run("hostname", timeout: timeout)
+        hostname = result.output.to_s.strip
+
+        validation_result = { ok: true, hostname: hostname }
+      rescue WinRM::WinRMAuthenticationError => e
+        validation_result = { ok: false, hostname: nil, error: "AuthenticationError: #{e.message}" }
+      rescue WinRM::WinRMEndpointError => e
+        validation_result = { ok: false, hostname: nil, error: "EndpointError: #{e.message}" }
+      rescue WinRM::WinRMAuthorizationError => e
+        validation_result = { ok: false, hostname: nil, error: "AuthorizationError: #{e.message}" }
+      rescue => e
+        validation_result = { ok: false, hostname: nil, error: "#{e.class}: #{e.message}" }
+      ensure
+        shell&.close
+        begin
+          conn.close if conn.respond_to?(:close)
+        rescue
+          nil
+        end
+        begin
+          conn.reset if conn.respond_to?(:reset)
+        rescue
+          nil
+        end
+      end
+
+      validation_result
     end
   end
 end
