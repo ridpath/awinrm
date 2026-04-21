@@ -106,7 +106,7 @@ module EvilCTF
       # Connection validation before session
       if options[:verify]
         endpoint = options[:endpoint] || "#{options[:ssl] ? 'https' : 'http'}://#{options[:ip]}:#{options[:port] || 5985}/wsman"
-        conn = EvilCTF::Connection.build_full(
+        validation = EvilCTF::Session.test_connection(
           endpoint: endpoint,
           user: options[:user],
           password: options[:password],
@@ -117,15 +117,12 @@ module EvilCTF
           ssl: options[:ssl],
           debug: options[:debug],
           transport: options[:transport],
-          user_agent: options[:user_agent]
+          user_agent: options[:user_agent],
+          timeout: 10
         )
-        unless conn
-          puts "[!] Connection failed: Could not create connection to #{endpoint}"
-          exit 1
-        end
-        validation = EvilCTF::ConnectionValidator.validate(conn)
         unless validation[:ok]
           puts "[!] Connection validation failed: #{validation[:error]}"
+          puts validation[:report] if validation[:report]
           exit 1
         end
         puts "[+] Connection validated: #{validation[:hostname]}"

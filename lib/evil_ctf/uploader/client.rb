@@ -133,12 +133,12 @@ module EvilCTF
         rescue => _e
         end
 
-        # Use WinRM::FS if available
+        # Use adapter file manager if available
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
         if fm && fm.respond_to?(:upload)
           begin
-            @logger&.info("[Uploader] Using WinRM::FS upload via adapter for #{local_path} -> #{tmp_remote}")
-            fm.upload(local_path, tmp_remote)
+            @logger&.info("[Uploader] Using file manager upload via adapter for #{local_path} -> #{tmp_remote}")
+            fm.upload(local_path: local_path, remote_path: tmp_remote)
             # mark as completed
             begin
               EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: File.size(local_path), sent: File.size(local_path) })
@@ -171,7 +171,7 @@ module EvilCTF
             end
             return true
           rescue => e
-            @logger&.warn("[Uploader] WinRM::FS upload failed, falling back: #{e.message}")
+            @logger&.warn("[Uploader] File manager upload failed, falling back: #{e.message}")
             begin
               EvilCTF::AppState.instance.clear_upload(upload_id)
             rescue
@@ -377,25 +377,25 @@ module EvilCTF
           raise ::EvilCTF::Errors::DownloadError, 'Remote path not found'
         end
 
-        # Prefer WinRM::FS
+        # Prefer adapter file manager
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
         if fm
           begin
-            @logger&.info("[Downloader] Using WinRM::FS to download #{remote_path} -> #{local_path}")
+            @logger&.info("[Downloader] Using file manager to download #{remote_path} -> #{local_path}")
             tmp_local = local_path + ".winrmfs.tmp"
             if fm.respond_to?(:download)
-              fm.download(remote_path, tmp_local)
+              fm.download(remote_path: remote_path, local_path: tmp_local)
             elsif fm.respond_to?(:read)
-              fm.read(remote_path, tmp_local)
+              fm.read(remote_path: remote_path, local_path: tmp_local)
             else
-              raise 'WinRM::FS file manager does not implement download/read'
+              raise 'File manager does not implement download/read'
             end
             FileUtils.mkdir_p(File.dirname(local_path))
             FileUtils.mv(tmp_local, local_path)
             @logger&.info("[Downloader] Download complete: #{local_path}")
             return true
           rescue => e
-            @logger&.warn("[Downloader] WinRM::FS download failed, falling back: #{e.message}")
+            @logger&.warn("[Downloader] File manager download failed, falling back: #{e.message}")
           end
         end
 

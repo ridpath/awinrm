@@ -34,17 +34,17 @@ module EvilCTF
     # Accepts optional `sessions` (array) and `stream_lines` to display
     # live data in the panels.
     def self.render_fixed_layout(shell, state = {}, sessions = [], stream_lines = [])
-      cols = (TTY::Screen.width rescue 100)
-      total = [cols, 200].min
+      width, height = screen_size
+      total = [[width, 72].max, 180].min
 
-      left_w   = 28
-      center_w = total - left_w - 6   # borders + spacing (no meta column)
+      left_w = [[(total * 0.26).to_i, 22].max, 36].min
+      center_w = [total - left_w - 6, 24].max # borders + spacing (no meta column)
 
       # Top bar
       puts "┌" + "─" * (total - 2) + "┐"
-      puts "│ AWINRM OPERATOR CONSOLE".ljust(total - 1) + "│"
+      puts "│ " + fit_line("AWINRM OPERATOR CONSOLE", total - 4).ljust(total - 4) + " │"
       meta = "Host: #{state[:host] || 'N/A'}   Status: #{state[:connected] ? 'Connected' : 'Disconnected'}   Shell: #{state[:shell] || 'PowerShell'}   SSL: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}"
-      puts "│ #{meta.ljust(total - 4)} │"
+      puts "│ " + fit_line(meta, total - 4).ljust(total - 4) + " │"
       puts "└" + "─" * (total - 2) + "┘"
 
        # Pane headers (two-column layout)
@@ -124,11 +124,15 @@ module EvilCTF
       cli_input = app_state.cli_input || ''
       center << "PS> #{cli_input}"
 
-        # Render rows (two-column layout)
-        max_rows = [left.size, center.size].max
+        # Render rows (two-column layout), constrained to terminal height.
+        reserved_lines = 10
+        visible_rows = [[height - reserved_lines, 8].max, [left.size, center.size].max].min
+        left_tail = left.last(visible_rows)
+        center_tail = center.last(visible_rows)
+        max_rows = [left_tail.size, center_tail.size].max
         max_rows.times do |i|
-          l = left[i]   || ""
-          c = center[i] || ""
+          l = fit_line(left_tail[i] || "", left_w - 1)
+          c = fit_line(center_tail[i] || "", center_w - 1)
 
           print "│ #{l.ljust(left_w - 1)}"
           print "│ #{c.ljust(center_w - 1)}│\n"
@@ -138,13 +142,13 @@ module EvilCTF
 
       # Footer: include menu toggle hints and insert-mode indicator
       mode_label = app_state.mode == :insert ? '[INSERT]' : '[NORMAL]'
-      footer = "[S] Sessions  [T] Tools  [M] Macros  [P] Profiles  [E] Settings   #{mode_label}  [i] enter insert  [q] quit"
-      puts footer.center(total)
+      footer = "[S] Sessions [T] Tools [M] Macros [P] Profiles [E] Settings [U] Upload [D] Download #{mode_label} [i] insert [q] quit"
+      puts fit_line(footer, total).center(total)
     end
 
     def self.render_dashboard(shell, state = {})
-      cols = (TTY::Screen.width rescue 100)
-      total = [cols, 100].min
+      width, _height = screen_size
+      total = [[width, 72].max, 120].min
 
       puts "┌" + "─" * (total - 2) + "┐"
       puts "│ EvilCTF Dashboard".ljust(total - 1) + "│"
@@ -154,14 +158,14 @@ module EvilCTF
       user = state[:user] || 'N/A'
       os_info = state[:os_info] || 'N/A'
 
-      puts "│ Host: #{host.ljust(total - 10)}│"
-      puts "│ User: #{user.ljust(total - 10)}│"
-      puts "│ #{os_info.ljust(total - 4)} │"
+      puts "│ " + fit_line("Host: #{host}", total - 4).ljust(total - 4) + " │"
+      puts "│ " + fit_line("User: #{user}", total - 4).ljust(total - 4) + " │"
+      puts "│ " + fit_line(os_info, total - 4).ljust(total - 4) + " │"
 
       puts "├" + "─" * (total - 2) + "┤"
-      puts "│ Connection Status: #{state[:connected] ? 'Connected' : 'Disconnected'}".ljust(total - 1) + "│"
-      puts "│ Shell Type: #{state[:shell] || 'PowerShell'}".ljust(total - 1) + "│"
-      puts "│ SSL Verification: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}".ljust(total - 1) + "│"
+      puts "│ " + fit_line("Connection Status: #{state[:connected] ? 'Connected' : 'Disconnected'}", total - 4).ljust(total - 4) + " │"
+      puts "│ " + fit_line("Shell Type: #{state[:shell] || 'PowerShell'}", total - 4).ljust(total - 4) + " │"
+      puts "│ " + fit_line("SSL Verification: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}", total - 4).ljust(total - 4) + " │"
       puts "└" + "─" * (total - 2) + "┘"
     end
 
@@ -407,21 +411,30 @@ module EvilCTF
           # Start a new background session via prompt
           begin
             prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
-            ip = prompt ? prompt.ask('Target IP:') : (print('Target IP: '); STDIN.gets&.strip)
-            user = prompt ? prompt.ask('User:', default: 'Administrator') : (print('User [Administrator]: '); (STDIN.gets&.strip || 'Administrator'))
-            pass = nil
-            if prompt
-              pass = prompt.mask('Password:')
-            else
-              print 'Password: '
-              pass = STDIN.noecho(&:gets).to_s.strip rescue STDIN.gets.to_s.strip
-              puts
+            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: nil)
+            user = prompt_value(prompt: prompt, label: 'User:', default: 'Administrator')
+            pass = prompt_value(prompt: prompt, label: 'Password:', default: nil, secret: true)
+            if ip.to_s.strip.empty? || user.to_s.strip.empty?
+              TUI.append_stream('[!] Target IP and User are required')
+              next
             end
             # Create a connection and shell adapter in background and set it as active
             t = Thread.new do
               begin
                 opts = { ip: ip, user: user, password: pass, ssl: false }
-                conn = EvilCTF::Connection.build_full(opts)
+                endpoint = "http://#{ip}:5985/wsman"
+                validation = EvilCTF::Session.test_connection(
+                  endpoint: endpoint,
+                  user: user,
+                  password: pass,
+                  ssl: false,
+                  timeout: 10
+                )
+                unless validation[:ok]
+                  render_modernization_report(target: ip, validation: validation)
+                  next
+                end
+                conn = EvilCTF::Connection.build_full(**opts)
                 unless conn
                   TUI.append_stream("[!] Failed to create connection for #{ip}")
                   next
@@ -474,20 +487,29 @@ module EvilCTF
           # Map F1 to 'new session' flow
           begin
             prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
-            ip = prompt ? prompt.ask('Target IP:') : (print('Target IP: '); STDIN.gets&.strip)
-            user = prompt ? prompt.ask('User:', default: 'Administrator') : (print('User [Administrator]: '); (STDIN.gets&.strip || 'Administrator'))
-            pass = nil
-            if prompt
-              pass = prompt.mask('Password:')
-            else
-              print 'Password: '
-              pass = STDIN.noecho(&:gets).to_s.strip rescue STDIN.gets.to_s.strip
-              puts
+            ip = prompt_value(prompt: prompt, label: 'Target IP:', default: nil)
+            user = prompt_value(prompt: prompt, label: 'User:', default: 'Administrator')
+            pass = prompt_value(prompt: prompt, label: 'Password:', default: nil, secret: true)
+            if ip.to_s.strip.empty? || user.to_s.strip.empty?
+              TUI.append_stream('[!] Target IP and User are required')
+              next
             end
             t = Thread.new do
               begin
                 opts = { ip: ip, user: user, password: pass, ssl: false }
-                conn = EvilCTF::Connection.build_full(opts)
+                endpoint = "http://#{ip}:5985/wsman"
+                validation = EvilCTF::Session.test_connection(
+                  endpoint: endpoint,
+                  user: user,
+                  password: pass,
+                  ssl: false,
+                  timeout: 10
+                )
+                unless validation[:ok]
+                  render_modernization_report(target: ip, validation: validation)
+                  next
+                end
+                conn = EvilCTF::Connection.build_full(**opts)
                 unless conn
                   TUI.append_stream("[!] Failed to create connection for #{ip}")
                   next
@@ -504,6 +526,20 @@ module EvilCTF
             TUI.add_session({ ip: ip, user: user, thread: t, started_at: Time.now })
           rescue => _e
             # ignore prompt failures
+          end
+          next
+        when 'u', 'U', :f5
+          if current_shell
+            transfer_file(shell: current_shell, direction: :upload)
+          else
+            TUI.append_stream('[!] No active shell for upload')
+          end
+          next
+        when 'd', 'D', :f6
+          if current_shell
+            transfer_file(shell: current_shell, direction: :download)
+          else
+            TUI.append_stream('[!] No active shell for download')
           end
           next
         else
@@ -526,7 +562,8 @@ module EvilCTF
 
     # Helper: prompt for a command and execute it in background using Execution.run
     def self.handle_cli_submit(shell)
-      cmd = (defined?(TTY::Prompt) ? TTY::Prompt.new.ask('PS>') : (print 'PS> '; STDIN.gets&.strip))
+      prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
+      cmd = prompt_value(prompt: prompt, label: 'PS>', default: nil)
       return unless cmd && !cmd.strip.empty?
       Thread.new do
         begin
@@ -573,6 +610,120 @@ module EvilCTF
         end
       end
       app_state.remove_task(id)
+    end
+
+    def self.screen_size
+      width = (TTY::Screen.width rescue 100)
+      height = (TTY::Screen.height rescue 30)
+      [width, height]
+    end
+
+    def self.fit_line(text, width)
+      t = text.to_s.gsub(/[\r\n]+/, ' ')
+      return '' if width <= 0
+      return t if t.length <= width
+      return '…' if width == 1
+      t[0, width - 1] + '…'
+    end
+
+    def self.prompt_value(prompt:, label:, default:, secret: false)
+      return fallback_prompt(label: label, default: default, secret: secret) unless prompt
+
+      if secret
+        begin
+          prompt.mask(label, quiet: true, filter: ->(value) { value.to_s.strip })
+        rescue ArgumentError
+          prompt.mask(label)
+        end
+      else
+        begin
+          prompt.ask(label, default: default, quiet: true, filter: ->(value) { value.to_s.strip })
+        rescue ArgumentError
+          prompt.ask(label, default: default)
+        end
+      end
+    end
+
+    def self.fallback_prompt(label:, default:, secret: false)
+      if secret
+        print "#{label} "
+        value = (STDIN.noecho(&:gets).to_s.strip rescue STDIN.gets.to_s.strip)
+        puts
+        return value
+      end
+
+      if default
+        print "#{label} [#{default}] "
+      else
+        print "#{label} "
+      end
+      value = STDIN.gets&.strip
+      value = default if (value.nil? || value.empty?) && !default.nil?
+      value
+    end
+
+    def self.transfer_file(shell:, direction:)
+      prompt = (defined?(TTY::Prompt) ? TTY::Prompt.new : nil)
+      adapter = EvilCTF::ShellAdapter.wrap(shell)
+      fm = adapter.respond_to?(:file_manager) ? adapter.file_manager : nil
+      unless fm
+        append_stream('[!] File manager unavailable for current session')
+        return
+      end
+
+      case direction
+      when :upload
+        local_path = prompt_value(prompt: prompt, label: 'Local file path:', default: nil)
+        remote_path = prompt_value(prompt: prompt, label: 'Remote destination path:', default: nil)
+        return if local_path.to_s.empty? || remote_path.to_s.empty?
+
+        Thread.new do
+          begin
+            fm.upload(local_path: local_path, remote_path: remote_path)
+            append_stream("[+] Upload complete: #{local_path} -> #{remote_path}")
+          rescue => e
+            append_stream("[!] Upload failed: #{e.class}: #{e.message}")
+          end
+        end
+      when :download
+        remote_path = prompt_value(prompt: prompt, label: 'Remote file path:', default: nil)
+        local_path = prompt_value(prompt: prompt, label: 'Local destination path:', default: nil)
+        return if local_path.to_s.empty? || remote_path.to_s.empty?
+
+        Thread.new do
+          begin
+            fm.download(remote_path: remote_path, local_path: local_path)
+            append_stream("[+] Download complete: #{remote_path} -> #{local_path}")
+          rescue => e
+            append_stream("[!] Download failed: #{e.class}: #{e.message}")
+          end
+        end
+      end
+    end
+
+    def self.render_modernization_report(target:, validation:)
+      status = validation[:ok] ? 'PASS' : 'FAIL'
+      error = validation[:error].to_s
+      report_text = validation[:report].to_s
+
+      begin
+        require 'tty-table'
+        width, _height = screen_size
+        value_width = [[width - 28, 20].max, 120].min
+        rows = [
+          ['Target', fit_line(target.to_s, value_width)],
+          ['Ruby 4 Compatibility', fit_line(status, value_width)],
+          ['Connection Error', fit_line(error.empty? ? 'N/A' : error, value_width)],
+          ['Report', fit_line(report_text.empty? ? 'No additional report' : report_text.gsub(/\s+/, ' ').strip, value_width)]
+        ]
+        table = TTY::Table.new(['Field', 'Value'], rows)
+        append_stream('')
+        append_stream('[!] Connection validation failed')
+        table.render(:unicode, multiline: true).lines.each { |ln| append_stream(ln.chomp) }
+      rescue LoadError
+        append_stream("[!] Connection validation failed for #{target}: #{error}")
+        append_stream(report_text) unless report_text.empty?
+      end
     end
   end
 end
