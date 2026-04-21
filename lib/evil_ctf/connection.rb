@@ -1,7 +1,4 @@
 # frozen_string_literal: true
-unless defined?(Fixnum)
-  Fixnum = Integer
-end
 
 require_relative '../compat/silence_warnings'
 require 'winrm' rescue nil

