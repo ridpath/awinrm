@@ -2,6 +2,7 @@
 
 require 'monitor'
 require 'ostruct'
+require 'shellwords'
 require_relative 'tools'
 require_relative 'execution'
 require_relative 'uploader'
@@ -135,6 +136,8 @@ module EvilCTF
         help_cmds = [
           ['help', 'This help'],
           ['clear', 'Clear screen'],
+          ['validate macros [names...] [--attacker-ip IP] [--attacker-port PORT]', 'Static macro validation without executing'],
+          ['validate aliases [names...]', 'Static alias validation without executing'],
           ['tools', 'List tool registry'],
           ['download_missing', 'Download all missing tools into ./tools'],
           ['dump_creds', 'Stage mimikatz & dump logon passwords'],
@@ -188,6 +191,31 @@ module EvilCTF
       register('clear') do |shell, args, session_options|
         system('clear || cls')
         ''
+      end
+
+      register('validate') do |shell, args, session_options|
+        command_manager = session_options[:command_manager]
+        return 'Command manager unavailable' unless command_manager
+
+        parsed = parse_validate_args(args)
+        return "validate parse error: #{parsed[:error]}" if parsed[:error]
+
+        case parsed[:target]
+        when 'macros'
+          report = command_manager.validate_macros(
+            names: parsed[:names],
+            replacements: parsed[:replacements],
+            check_local_tools: true
+          )
+          render_macro_validation_report(report)
+        when 'aliases'
+          report = command_manager.validate_aliases(names: parsed[:names])
+          render_alias_validation_report(report)
+        else
+          "Usage:\n" \
+            "  validate macros [name1 name2 ...] [--attacker-ip IP] [--attacker-port PORT]\n" \
+            "  validate aliases [name1 name2 ...]"
+        end
       end
 
       # tools
@@ -650,6 +678,59 @@ module EvilCTF
         system(ENV['SHELL'] || '/bin/bash')
         ''
       end
+    end
+
+    def parse_validate_args(args)
+      tokens = Shellwords.split(args.to_s)
+      target = tokens.shift.to_s.downcase
+      names = []
+      replacements = {}
+
+      i = 0
+      while i < tokens.length
+        token = tokens[i]
+        case token
+        when '--attacker-ip'
+          replacements['AttackerIP'] = tokens[i + 1].to_s
+          i += 2
+        when '--attacker-port'
+          replacements['AttackerPort'] = tokens[i + 1].to_s
+          i += 2
+        else
+          names << token
+          i += 1
+        end
+      end
+
+      { target: target, names: names, replacements: replacements }
+    rescue ArgumentError => e
+      { target: '', names: [], replacements: {}, error: e.message }
+    end
+
+    def render_macro_validation_report(report)
+      output = []
+      output << 'Macro Validation (dry-run, no remote execution)'
+      output << "Summary: #{report[:passed]}/#{report[:total]} pass"
+      report[:results].each do |result|
+        status = result[:ok] ? 'PASS' : 'FAIL'
+        output << "- #{result[:name]}: #{status}"
+        result[:errors].each { |err| output << "    error: #{err}" }
+        result[:warnings].each { |warn| output << "    warning: #{warn}" }
+      end
+      output.join("\n")
+    end
+
+    def render_alias_validation_report(report)
+      output = []
+      output << 'Alias Validation (dry-run, no remote execution)'
+      output << "Summary: #{report[:passed]}/#{report[:total]} pass"
+      report[:results].each do |result|
+        status = result[:ok] ? 'PASS' : 'FAIL'
+        output << "- #{result[:name]}: #{status}"
+        output << "    expands_to: #{result[:expansion]}" if result[:expansion]
+        output << "    error: #{result[:error]}" if result[:error]
+      end
+      output.join("\n")
     end
   end
 end

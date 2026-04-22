@@ -1,9 +1,10 @@
-<todos title="ruby4 compatibility fixes" rule="Review steps frequently throughout the conversation and DO NOT stop between steps unless they explicitly require it.">
-- [x] update-inveigh-macro: Change inveigh_start macro to avoid interactive console mode by default 🔴
-- [x] harden-alias-expansion: Make alias expansion match exact command token only 🔴
-- [x] remove-fixnum-shim: Remove unnecessary Fixnum compatibility shim from connection layer 🟡
-- [x] update-tests: Adjust and add specs for new macro and alias behavior 🔴
-- [x] run-rspec: Run test suite to verify all changes 🔴
+<todos title="macro alias validation sweep" rule="Review steps frequently throughout the conversation and DO NOT stop between steps unless they explicitly require it.">
+- [x] inspect-engines: Inspect macro and alias engine internals for current execution behavior and extension points for dry-run validation 🔴
+- [x] design-validation-mode: Design non-executing validation flow for listed macros and aliases with clear pass/fail reasons 🔴
+- [x] implement-validation-mode: Implement dry-run/static validation methods and CLI integration 🔴
+- [x] add-tests: Add or update specs to cover validation mode for macros and aliases 🟡
+- [x] run-tests: Run targeted test suite and verify no regressions 🟡
+- [x] summarize-usage: Provide usage instructions for safe macro/alias evaluation 🟡
 </todos>
 
 <!-- Auto-generated todo section -->

