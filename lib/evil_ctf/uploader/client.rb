@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'base64'
 require 'fileutils'
 require 'digest'
@@ -9,6 +10,7 @@ require_relative '../errors'
 require_relative '../utils'
 require_relative '../app_state'
 require_relative '../engine_audit'
+require_relative 'smb'
 
 module EvilCTF
   require 'colorize'
@@ -18,11 +20,16 @@ module EvilCTF
 
       def initialize(shell_or_adapter, logger = nil)
         @shell_adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
-        @logger = logger || EvilCTF::Logger.new(nil) rescue nil
+        @logger = begin
+          logger || EvilCTF::Logger.new(nil)
+        rescue StandardError
+          nil
+        end
       end
 
-
-      def upload_file(*args, local_path: nil, remote_path: nil, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE, verify: true, xor_key: nil)
+      def upload_file(*args, local_path: nil, remote_path: nil, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE,
+                      verify: true, xor_key: nil,
+                      try_smb: true, smb_ip: nil, smb_user: nil, smb_password: nil, smb_hash: nil, smb_domain: '.')
         if args.any?
           local_path ||= args[0]
           remote_path ||= args[1]
@@ -34,10 +41,29 @@ module EvilCTF
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
+        # Try SMB push first if we have the necessary info and port 445 is likely open
+        if try_smb && smb_ip && (smb_user || smb_hash)
+          smb_result = EvilCTF::Uploader::SmbUpload.upload(
+            local_path: local_path,
+            remote_path: remote_path,
+            ip: smb_ip,
+            user: smb_user || 'Administrator',
+            password: smb_password,
+            hash: smb_hash,
+            domain: smb_domain
+          )
+          if smb_result
+            puts '[+] SMB upload complete'.colorize(:green)
+            @logger&.info("[Uploader] SMB upload successful via #{smb_result[:share]}")
+            return smb_result
+          end
+          puts '[*] SMB not available, falling back to WinRM upload...'.colorize(:yellow)
+        end
+
         # Check PowerShell availability before upload
         ps_check = "try { $PSVersionTable.PSVersion.ToString() } catch { 'NO_POWERSHELL' }"
         check_res = @shell_adapter.run(ps_check)
-        unless check_res && check_res.output && check_res.output.to_s.strip != 'NO_POWERSHELL'
+        unless check_res&.output && check_res.output.to_s.strip != 'NO_POWERSHELL'
           puts '[!] PowerShell not available on target. Cannot upload file.'.colorize(:red)
           @logger&.error('[Uploader] PowerShell not available on target. Cannot upload file.')
           raise ::EvilCTF::Errors::UploadError, 'PowerShell not available on target.'
@@ -46,13 +72,13 @@ module EvilCTF
         # If remote_path is a directory, append the local filename
         is_dir = remote_path.end_with?('\\') || remote_path.end_with?('/')
         final_remote_path = if is_dir
-          File.join(remote_path, File.basename(local_path)).gsub('/', '\\')
-        else
-          remote_path
-        end
+                              File.join(remote_path, File.basename(local_path)).gsub('/', '\\')
+                            else
+                              remote_path
+                            end
 
         # Detect if this is an ADS upload (C:\path\file.txt:adsname)
-        is_ads = !!(final_remote_path =~ /:[^\\\/]+$/)
+        is_ads = !(final_remote_path =~ %r{:[^\\/]+$}).nil?
 
         if is_ads
           # --- ADS upload logic using Add-Content -Encoding Byte ---
@@ -70,16 +96,16 @@ module EvilCTF
                           end
                 b64 = Base64.strict_encode64(payload)
                 ps = <<~PS
-                  try {
-                    $b64 = @'
-#{b64}
-'@
-                    $bytes = [Convert]::FromBase64String($b64)
-                    Add-Content -Path '#{ads_path}' -Value $bytes -Encoding Byte
-                    "ADS_CHUNK #{idx}"
-                  } catch {
-                    "ERROR: $($_.Exception.Message)"
-                  }
+                                    try {
+                                      $b64 = @'
+                  #{b64}
+                  '@
+                                      $bytes = [Convert]::FromBase64String($b64)
+                                      Add-Content -Path '#{ads_path}' -Value $bytes -Encoding Byte
+                                      "ADS_CHUNK #{idx}"
+                                    } catch {
+                                      "ERROR: $($_.Exception.Message)"
+                                    }
                 PS
                 res = @shell_adapter.run(ps)
                 unless res && res.output.to_s.include?("ADS_CHUNK #{idx}")
@@ -98,12 +124,12 @@ module EvilCTF
                 } catch { "ERROR: $($_.Exception.Message)" }
               PS
               len_res = @shell_adapter.run(ps_len)
-              remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : nil
+              remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : nil
               local_len = File.size(local_path)
               return { ok: remote_len == local_len, local_len: local_len, remote_len: remote_len }
             end
             return true
-          rescue => e
+          rescue StandardError => e
             @logger&.error("[Uploader] ADS upload failed: #{e.class}: #{e.message}")
             raise ::EvilCTF::Errors::UploadError, e.message
           end
@@ -134,20 +160,24 @@ module EvilCTF
         # Register upload in AppState so UI can show real progress
         upload_id = "upload_#{tmp_token}_#{Thread.current.object_id}"
         begin
-          EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: File.size(local_path), sent: 0 })
-        rescue => _e
+          EvilCTF::AppState.instance.set_upload(upload_id,
+                                                { name: File.basename(local_path), total: File.size(local_path),
+                                                  sent: 0 })
+        rescue StandardError => _e
         end
 
         # Use adapter file manager if available
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
-        if fm && fm.respond_to?(:upload)
+        if fm.respond_to?(:upload)
           begin
             @logger&.info("[Uploader] Using file manager upload via adapter for #{local_path} -> #{tmp_remote}")
             fm.upload(local_path: local_path, remote_path: tmp_remote)
             # mark as completed
             begin
-              EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: File.size(local_path), sent: File.size(local_path) })
-            rescue
+              EvilCTF::AppState.instance.set_upload(upload_id,
+                                                    { name: File.basename(local_path), total: File.size(local_path),
+                                                      sent: File.size(local_path) })
+            rescue StandardError
             end
             # move into place
             escaped_final = EvilCTF::Utils.escape_ps_string(final_remote_path)
@@ -167,20 +197,22 @@ module EvilCTF
             if verify
               ps = "(Get-FileHash -Path '#{final_remote_path}' -Algorithm SHA256).Hash"
               res = @shell_adapter.run(ps)
-              remote_raw = res && res.output ? res.output.to_s : ''
+              remote_raw = res&.output ? res.output.to_s : ''
               remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
               if local_sha256 != remote_hash
-                return { ok: false, local_hash: local_sha256, remote_hash: remote_hash, error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
+                return { ok: false, local_hash: local_sha256, remote_hash: remote_hash,
+                         error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
               end
+
               return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: remote_hash }
             end
             return true
-          rescue => e
+          rescue StandardError => e
             @logger&.warn("[Uploader] File manager upload failed, falling back: #{e.message}")
             EvilCTF::EngineAudit.error(message: 'file manager upload failed', error: e, source: 'uploader_client')
             begin
               EvilCTF::AppState.instance.clear_upload(upload_id)
-            rescue
+            rescue StandardError
             end
           end
         end
@@ -213,8 +245,8 @@ module EvilCTF
             if exist_res && exist_res.output.to_s.strip == 'True'
               ps_len = "(Get-Item -Path '#{escaped_tmp_q}' -ErrorAction SilentlyContinue).Length"
               len_res = @shell_adapter.run(ps_len)
-              offset = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
-              @logger&.info("[Uploader] Resuming upload at offset #{offset}") if offset && offset > 0
+              offset = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+              @logger&.info("[Uploader] Resuming upload at offset #{offset}") if offset&.positive?
               f.seek(offset)
             end
 
@@ -223,8 +255,10 @@ module EvilCTF
             local_size = File.size(local_path)
             # ensure app_state knows total
             begin
-              EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: local_size, sent: bytes_sent })
-            rescue
+              EvilCTF::AppState.instance.set_upload(upload_id,
+                                                    { name: File.basename(local_path), total: local_size,
+                                                      sent: bytes_sent })
+            rescue StandardError
             end
             while (buf = f.read(chunk_size))
               payload = if xor_key
@@ -237,19 +271,19 @@ module EvilCTF
               b64 = Base64.strict_encode64(payload)
               escaped_remote = EvilCTF::Utils.escape_ps_string(tmp_remote)
               ps = <<~PS
-                try {
-                  $b64 = @'
-#{b64}
-'@
-                  $bytes = [Convert]::FromBase64String($b64)
-                  $path = '#{escaped_remote}'
-                  $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
-                  $fs.Write($bytes, 0, $bytes.Length)
-                  $fs.Close()
-                  "CHUNK #{idx}"
-                } catch {
-                  "ERROR: $($_.Exception.Message)"
-                }
+                                try {
+                                  $b64 = @'
+                #{b64}
+                '@
+                                  $bytes = [Convert]::FromBase64String($b64)
+                                  $path = '#{escaped_remote}'
+                                  $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+                                  $fs.Write($bytes, 0, $bytes.Length)
+                                  $fs.Close()
+                                  "CHUNK #{idx}"
+                                } catch {
+                                  "ERROR: $($_.Exception.Message)"
+                                }
               PS
               res = @shell_adapter.run(ps)
               unless res && res.output.to_s.include?("CHUNK #{idx}")
@@ -260,17 +294,19 @@ module EvilCTF
               bytes_sent += buf.bytesize
               # update progress in AppState
               begin
-                EvilCTF::AppState.instance.set_upload(upload_id, { name: File.basename(local_path), total: local_size, sent: bytes_sent })
-              rescue
+                EvilCTF::AppState.instance.set_upload(upload_id,
+                                                      { name: File.basename(local_path), total: local_size,
+                                                        sent: bytes_sent })
+              rescue StandardError
               end
               ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
               len_res = @shell_adapter.run(ps_len_check)
-              remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+              remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
               if remote_len < bytes_sent
                 @logger&.warn("[Uploader] Remote tmp length (#{remote_len}) less than expected (#{bytes_sent}), retrying chunk #{idx}")
                 res_retry = @shell_adapter.run(ps)
                 len_res = @shell_adapter.run(ps_len_check)
-                remote_len = len_res && len_res.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+                remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
                 if remote_len < bytes_sent
                   @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting. Script: #{ps.strip}\nOutput: #{res_retry&.output}")
                   raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed after retry. Output: #{res_retry&.output}"
@@ -280,12 +316,16 @@ module EvilCTF
               idx += 1
             end
           end
-        rescue => e
+        rescue StandardError => e
           @logger&.error("[Uploader] Upload failed during chunked transfer: #{e.class}: #{e.message}")
           EvilCTF::EngineAudit.error(message: 'chunked upload failed', error: e, source: 'uploader_client')
           begin
-            EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
-          rescue
+            begin
+              EvilCTF::AppState.instance.clear_upload(upload_id)
+            rescue StandardError
+              nil
+            end
+          rescue StandardError
           end
           raise ::EvilCTF::Errors::UploadError, e.message
         end
@@ -295,11 +335,11 @@ module EvilCTF
         if verify
           ps_tmp_hash = "(Get-FileHash -Path '#{tmp_remote}' -Algorithm SHA256).Hash"
           res_tmp = @shell_adapter.run(ps_tmp_hash)
-          tmp_raw = res_tmp && res_tmp.output ? res_tmp.output.to_s : ''
+          tmp_raw = res_tmp&.output ? res_tmp.output.to_s : ''
           tmp_hash = tmp_raw.scan(/[0-9A-Fa-f]{64}/).first
           if tmp_hash.nil? || tmp_hash.empty?
             cleaned = tmp_raw.gsub(/[^0-9A-Fa-f]/, '')
-            tmp_hash = cleaned[0,64] if cleaned && cleaned.length >= 64
+            tmp_hash = cleaned[0, 64] if cleaned && cleaned.length >= 64
           end
         end
 
@@ -309,7 +349,7 @@ module EvilCTF
           try { Remove-Item -Path '#{escaped_final}' -Force -ErrorAction SilentlyContinue; "OK" } catch { "ERROR: $($_.Exception.Message)" }
         PS
         @shell_adapter.run(ps_rm_final)
-        
+
         # Move temp file into place
         ps_move = <<~PS
           try {
@@ -331,48 +371,69 @@ module EvilCTF
               "ERROR: $($_.Exception.Message)"
             }
           PS
-          copy_res = @shell_adapter.run(ps_copy)
+          @shell_adapter.run(ps_copy)
         end
 
         if verify
           ps = "(Get-FileHash -Path '#{final_remote_path}' -Algorithm SHA256).Hash"
           res = @shell_adapter.run(ps)
-          remote_raw = res && res.output ? res.output.to_s : ''
+          remote_raw = res&.output ? res.output.to_s : ''
           remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
           if remote_hash.nil? || remote_hash.empty?
             cleaned = remote_raw.gsub(/[^0-9A-Fa-f]/, '')
-            remote_hash = cleaned[0,64] if cleaned && cleaned.length >= 64
+            remote_hash = cleaned[0, 64] if cleaned && cleaned.length >= 64
           end
           if local_sha256 != remote_hash
             begin
-              EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
-            rescue
+              begin
+                EvilCTF::AppState.instance.clear_upload(upload_id)
+              rescue StandardError
+                nil
+              end
+            rescue StandardError
             end
-            return { ok: false, local_hash: local_sha256, remote_hash: remote_hash, error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
+            return { ok: false, local_hash: local_sha256, remote_hash: remote_hash,
+                     error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
           end
           begin
-            EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
-          rescue
+            begin
+              EvilCTF::AppState.instance.clear_upload(upload_id)
+            rescue StandardError
+              nil
+            end
+          rescue StandardError
           end
           return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: tmp_hash }
         end
 
         begin
-          EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
-        rescue
+          begin
+            EvilCTF::AppState.instance.clear_upload(upload_id)
+          rescue StandardError
+            nil
+          end
+        rescue StandardError
         end
         true
       ensure
         # best-effort cleanup of temporary part files if any error occurred
         begin
           if defined?(tmp_remote) && tmp_remote && @shell_adapter
-            ::EvilCTF::Uploader.cleanup_tmp(tmp_remote, @shell_adapter) rescue nil
+            begin
+              ::EvilCTF::Uploader.cleanup_tmp(tmp_remote, @shell_adapter)
+            rescue StandardError
+              nil
+            end
           end
-        rescue
+        rescue StandardError
         end
         begin
-          EvilCTF::AppState.instance.clear_upload(upload_id) rescue nil
-        rescue
+          begin
+            EvilCTF::AppState.instance.clear_upload(upload_id)
+          rescue StandardError
+            nil
+          end
+        rescue StandardError
         end
       end
 
@@ -393,7 +454,7 @@ module EvilCTF
         if fm
           begin
             @logger&.info("[Downloader] Using file manager to download #{remote_path} -> #{local_path}")
-            tmp_local = local_path + ".winrmfs.tmp"
+            tmp_local = "#{local_path}.winrmfs.tmp"
             if fm.respond_to?(:download)
               fm.download(remote_path: remote_path, local_path: tmp_local)
             elsif fm.respond_to?(:read)
@@ -405,13 +466,13 @@ module EvilCTF
             FileUtils.mv(tmp_local, local_path)
             @logger&.info("[Downloader] Download complete: #{local_path}")
             return true
-          rescue => e
+          rescue StandardError => e
             if remote_not_found_error?(e)
               retry_remote = resolve_remote_path(remote_path: requested_remote_path, retries: 4, delay: 1)
               if retry_remote && retry_remote != remote_path
                 @logger&.info("[Downloader] Retrying with resolved path #{retry_remote}")
                 begin
-                  tmp_local = local_path + ".winrmfs.tmp"
+                  tmp_local = "#{local_path}.winrmfs.tmp"
                   if fm.respond_to?(:download)
                     fm.download(remote_path: retry_remote, local_path: tmp_local)
                   elsif fm.respond_to?(:read)
@@ -421,7 +482,7 @@ module EvilCTF
                   FileUtils.mv(tmp_local, local_path)
                   @logger&.info("[Downloader] Download complete after path retry: #{local_path}")
                   return true
-                rescue => retry_error
+                rescue StandardError => retry_error
                   @logger&.warn("[Downloader] Retry with resolved path failed: #{retry_error.message}")
                 end
               end
@@ -431,13 +492,15 @@ module EvilCTF
         end
 
         begin
-          return download_via_chunks(remote_path: remote_path, local_path: local_path, xor_key: xor_key, allow_empty: allow_empty)
+          download_via_chunks(remote_path: remote_path, local_path: local_path, xor_key: xor_key,
+                              allow_empty: allow_empty)
         rescue ::EvilCTF::Errors::DownloadError => e
           if remote_not_found_error?(e)
             retry_remote = resolve_remote_path(remote_path: requested_remote_path, retries: 6, delay: 1)
             if retry_remote && retry_remote != remote_path
               @logger&.info("[Downloader] Retrying chunked download with resolved path #{retry_remote}")
-              return download_via_chunks(remote_path: retry_remote, local_path: local_path, xor_key: xor_key, allow_empty: allow_empty)
+              return download_via_chunks(remote_path: retry_remote, local_path: local_path, xor_key: xor_key,
+                                         allow_empty: allow_empty)
             end
             @logger&.warn("[Downloader] No remote candidates found for #{requested_remote_path}")
             log_nearby_remote_candidates(remote_path: requested_remote_path)
@@ -448,7 +511,7 @@ module EvilCTF
         end
       rescue ::EvilCTF::Errors::DownloadError
         raise
-      rescue => e
+      rescue StandardError => e
         @logger&.error("[Downloader] Download failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'download failed', error: e, source: 'uploader_client')
         raise ::EvilCTF::Errors::DownloadError, e.message
@@ -467,11 +530,12 @@ module EvilCTF
           return matched if matched
 
           break if idx == attempts - 1
+
           sleep(delay)
         end
 
         nil
-      rescue => e
+      rescue StandardError => e
         @logger&.warn("[Downloader] Remote path resolution failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'remote path resolution failed', error: e, source: 'uploader_client')
         nil
@@ -509,7 +573,7 @@ module EvilCTF
         return nil unless marker
 
         marker.sub('MATCH::', '').strip
-      rescue => e
+      rescue StandardError => e
         @logger&.warn("[Downloader] Match probe failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'remote match probe failed', error: e, source: 'uploader_client')
         nil
@@ -522,7 +586,7 @@ module EvilCTF
 
       def download_via_chunks(remote_path:, local_path:, xor_key:, allow_empty:)
         chunk_size = DEFAULT_CHUNK_SIZE
-        tmp_local = local_path + '.part'
+        tmp_local = "#{local_path}.part"
         FileUtils.mkdir_p(File.dirname(local_path))
 
         offset = File.exist?(tmp_local) ? File.size(tmp_local) : 0
@@ -563,7 +627,7 @@ module EvilCTF
             raise ::EvilCTF::Errors::DownloadError, msg
           end
 
-          b64 = raw.scan(/[A-Za-z0-9+\/=\s]{4,}/m).map { |s| s.gsub(/\s+/, '') }.max_by(&:length).to_s
+          b64 = raw.scan(%r{[A-Za-z0-9+/=\s]{4,}}m).map { |s| s.gsub(/\s+/, '') }.max_by(&:length).to_s
 
           if b64.empty?
             @logger&.info('[Downloader] No more data from remote; finishing')
@@ -572,8 +636,12 @@ module EvilCTF
 
           begin
             chunk = Base64.strict_decode64(b64)
-          rescue
-            chunk = Base64.decode64(b64) rescue nil
+          rescue StandardError
+            chunk = begin
+              Base64.decode64(b64)
+            rescue StandardError
+              nil
+            end
           end
 
           if chunk.nil? || chunk.empty?
@@ -591,7 +659,7 @@ module EvilCTF
           break if chunk.bytesize < chunk_size
         end
 
-        if File.exist?(tmp_local) && File.size(tmp_local) == 0 && !allow_empty
+        if File.exist?(tmp_local) && File.empty?(tmp_local) && !allow_empty
           puts '[!] Remote file empty and empty files not allowed'.colorize(:red)
           @logger&.error('[Downloader] Remote file empty and empty files not allowed')
           raise ::EvilCTF::Errors::DownloadError, 'Remote file empty'
@@ -624,7 +692,7 @@ module EvilCTF
         out = @shell_adapter.run(ps)&.output.to_s
         line = out.lines.map(&:strip).find { |ln| ln.start_with?('CANDIDATES::') }
         @logger&.warn("[Downloader] #{line}") if line && !line.empty?
-      rescue => e
+      rescue StandardError => e
         @logger&.warn("[Downloader] Candidate listing failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'candidate listing failed', error: e, source: 'uploader_client')
       end
@@ -646,11 +714,12 @@ module EvilCTF
           return true if out.include?('EXISTS')
 
           break if idx == attempts - 1
+
           sleep(delay)
         end
 
         false
-      rescue => e
+      rescue StandardError => e
         @logger&.warn("[Downloader] Existence probe failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'existence probe failed', error: e, source: 'uploader_client')
         false
@@ -658,4 +727,3 @@ module EvilCTF
     end
   end
 end
-

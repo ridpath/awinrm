@@ -1,16 +1,18 @@
+# frozen_string_literal: true
+
 require_relative 'uploader/client'
 
 module EvilCTF
   module Uploader
     # Backwards-compatible module-level wrappers
-    def self.upload_file(local_path:, remote_path:, shell:, **opts)
+    def self.upload_file(local_path:, remote_path:, shell:, **kwargs)
       client = Client.new(shell)
-      client.upload_file(local_path: local_path, remote_path: remote_path, **opts)
+      client.upload_file(local_path: local_path, remote_path: remote_path, **kwargs)
     end
 
-    def self.download_file(remote_path:, local_path:, shell:, **opts)
+    def self.download_file(remote_path:, local_path:, shell:, **kwargs)
       client = Client.new(shell)
-      client.download_file(remote_path: remote_path, local_path: local_path, **opts)
+      client.download_file(remote_path: remote_path, local_path: local_path, **kwargs)
     end
 
     # Interactive file operations menu (upload/download/ZIP)
@@ -18,145 +20,147 @@ module EvilCTF
       require 'readline'
       client = Client.new(shell)
       require 'colorize'
-      puts "\n" + "File Operations Menu:".colorize(:cyan) + "\n" + "---------------------".colorize(:light_black)
-      puts "[!] To upload into a directory, end the remote destination path with a backslash (e.g., C:\\Users\\jabbatheduck\\)".colorize(:yellow)
+      puts "\n#{'File Operations Menu:'.colorize(:cyan)}\n#{'---------------------'.colorize(:light_black)}"
+      puts '[!] To upload into a directory, end the remote destination path with a backslash (e.g., C:\\Users\\jabbatheduck\\)'.colorize(:yellow)
       # Tab completion for local files/dirs
       file_completion = proc do |input|
         Dir["#{input}*"]
       end
       # Tab completion for remote paths (PowerShell Get-ChildItem)
       remote_completion = proc do |input|
-        begin
-          base = input.strip.gsub('/', '\\')
-          # Expand ~ to user profile
-          if base.start_with?("~")
-            ps_base = "$env:USERPROFILE" + base[1..-1]
-          elsif base =~ /^%([^%]+)%/i
-            env_var = base[/^%([^%]+)%/i, 1]
-            ps_base = "$env:#{env_var}" + base[env_var.length+2..-1].to_s
-          elsif base =~ /^[A-Za-z]:$/
-            ps_base = base + '\\'
-          elsif base =~ /^[A-Za-z]$/
-            ps_base = base + ':\\'
-          elsif base.empty?
-            ps_base = 'C:\\'
-          else
-            ps_base = base
-          end
-
-          # For tab completion, split into dir and partial
-          if ps_base.end_with?('\\')
-            dir = ps_base
-            partial = ''
-          else
-            dir = File.dirname(ps_base + 'x') + '\\'
-            partial = File.basename(ps_base)
-          end
-
-          # Always show completions for drive roots and partials
-            ps = <<~PS
-            try {
-              $d = '#{EvilCTF::Utils.escape_ps_string(dir)}'
-              $p = '#{EvilCTF::Utils.escape_ps_string(partial)}'
-              $results = Get-ChildItem -Path $d -Directory -Name | Where-Object { $_ -like "$p*" } | ForEach-Object { Join-Path $d $_ }
-              if ($results.Count -eq 0 -and $p -eq '') {
-                # Show drive letters
-                Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + ':' }
-              } else {
-                $results
-              }
-            } catch { '' }
-          PS
-          out = shell.run(ps).output.to_s.split("\n").map(&:strip).reject(&:empty?)
-          out.uniq
-        rescue
-          []
+        base = input.strip.gsub('/', '\\')
+        # Expand ~ to user profile
+        if base.start_with?('~')
+          ps_base = "$env:USERPROFILE#{base[1..]}"
+        elsif base =~ /^%([^%]+)%/i
+          env_var = base[/^%([^%]+)%/i, 1]
+          ps_base = "$env:#{env_var}" + base[(env_var.length + 2)..].to_s
+        elsif base =~ /^[A-Za-z]:$/
+          ps_base = "#{base}\\"
+        elsif base =~ /^[A-Za-z]$/
+          ps_base = "#{base}:\\"
+        elsif base.empty?
+          ps_base = 'C:\\'
+        else
+          ps_base = base
         end
+
+        # For tab completion, split into dir and partial
+        if ps_base.end_with?('\\')
+          dir = ps_base
+          partial = ''
+        else
+          dir = "#{File.dirname("#{ps_base}x")}\\"
+          partial = File.basename(ps_base)
+        end
+
+        # Always show completions for drive roots and partials
+        ps = <<~PS
+          try {
+            $d = '#{EvilCTF::Utils.escape_ps_string(dir)}'
+            $p = '#{EvilCTF::Utils.escape_ps_string(partial)}'
+            $results = Get-ChildItem -Path $d -Directory -Name | Where-Object { $_ -like "$p*" } | ForEach-Object { Join-Path $d $_ }
+            if ($results.Count -eq 0 -and $p -eq '') {
+              # Show drive letters
+              Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + ':' }
+            } else {
+              $results
+            }
+          } catch { '' }
+        PS
+        out = shell.run(ps).output.to_s.split("\n").map(&:strip).reject(&:empty?)
+        out.uniq
+      rescue StandardError
+        []
       end
       loop do
         puts "\nChoose an option:".colorize(:cyan)
-        puts "  1. Upload file".colorize(:green)
-        puts "  2. Download file".colorize(:green)
-        puts "  3. ZIP and upload directory".colorize(:green)
-        puts "  4. Exit fileops menu".colorize(:light_black)
-        print "> ".colorize(:cyan)
-        choice = $stdin.gets.strip rescue '4'
+        puts '  1. Upload file'.colorize(:green)
+        puts '  2. Download file'.colorize(:green)
+        puts '  3. ZIP and upload directory'.colorize(:green)
+        puts '  4. Exit fileops menu'.colorize(:light_black)
+        print '> '.colorize(:cyan)
+        choice = begin
+          $stdin.gets.strip
+        rescue StandardError
+          '4'
+        end
         case choice
         when '1'
           Readline.completion_append_character = nil
           Readline.completion_proc = file_completion
-          local = Readline.readline("Local file to upload: ", true).strip
+          local = Readline.readline('Local file to upload: ', true).strip
           Readline.completion_proc = nil
           # Remote path completion
           Readline.completion_append_character = nil
           Readline.completion_proc = remote_completion
-          remote_dir = Readline.readline("Remote destination directory: ", true).strip
+          remote_dir = Readline.readline('Remote destination directory: ', true).strip
           Readline.completion_proc = nil
           # If user gives a directory, use the same filename as local
-          if remote_dir.end_with?('\\') || remote_dir =~ /^[A-Za-z]:$/
-            remote = File.join(remote_dir, File.basename(local)).gsub('/', '\\')
-          else
-            remote = remote_dir
-          end
+          remote = if remote_dir.end_with?('\\') || remote_dir =~ /^[A-Za-z]:$/
+                     File.join(remote_dir, File.basename(local)).gsub('/', '\\')
+                   else
+                     remote_dir
+                   end
           begin
             ok = client.upload_file(local_path: local, remote_path: remote)
-            puts(ok ? "[+] Upload successful".colorize(:green) : "[!] Upload failed".colorize(:red))
-          rescue => e
+            puts(ok ? '[+] Upload successful'.colorize(:green) : '[!] Upload failed'.colorize(:red))
+          rescue StandardError => e
             puts "[!] Upload error: #{e.message}".colorize(:red)
           end
         when '2'
           # Remote path completion
           Readline.completion_append_character = nil
           Readline.completion_proc = remote_completion
-          remote = Readline.readline("Remote file to download: ", true).strip
+          remote = Readline.readline('Remote file to download: ', true).strip
           Readline.completion_proc = nil
           Readline.completion_append_character = nil
           Readline.completion_proc = file_completion
-          local = Readline.readline("Local destination path: ", true).strip
+          local = Readline.readline('Local destination path: ', true).strip
           Readline.completion_proc = nil
           begin
             ok = client.download_file(remote_path: remote, local_path: local)
-            puts(ok ? "[+] Download successful".colorize(:green) : "[!] Download failed".colorize(:red))
-          rescue => e
+            puts(ok ? '[+] Download successful'.colorize(:green) : '[!] Download failed'.colorize(:red))
+          rescue StandardError => e
             puts "[!] Download error: #{e.message}".colorize(:red)
           end
         when '3'
           Readline.completion_append_character = nil
           Readline.completion_proc = file_completion
-          dir = Readline.readline("Local directory to ZIP and upload: ", true).strip
+          dir = Readline.readline('Local directory to ZIP and upload: ', true).strip
           Readline.completion_proc = nil
           # Remote path completion
           Readline.completion_append_character = nil
           Readline.completion_proc = remote_completion
-          remote_dir = Readline.readline("Remote ZIP destination directory: ", true).strip
+          remote_dir = Readline.readline('Remote ZIP destination directory: ', true).strip
           Readline.completion_proc = nil
           zip_path = "#{dir}.zip"
           # If user gives a directory, use the same filename as local
-          if remote_dir.end_with?('\\') || remote_dir =~ /^[A-Za-z]:$/
-            remote = File.join(remote_dir, File.basename(zip_path)).gsub('/', '\\')
-          else
-            remote = remote_dir
-          end
+          remote = if remote_dir.end_with?('\\') || remote_dir =~ /^[A-Za-z]:$/
+                     File.join(remote_dir, File.basename(zip_path)).gsub('/', '\\')
+                   else
+                     remote_dir
+                   end
           begin
             require 'zip'
             Zip::File.open(zip_path, create: true) do |zipfile|
               Dir[File.join(dir, '**', '**')].each do |file|
-                zipfile.add(file.sub(dir + '/', ''), file)
+                zipfile.add(file.sub("#{dir}/", ''), file)
               end
             end
             puts "[*] Created ZIP: #{zip_path}".colorize(:cyan)
             ok = client.upload_file(local_path: zip_path, remote_path: remote)
-            puts(ok ? "[+] ZIP upload successful".colorize(:green) : "[!] ZIP upload failed".colorize(:red))
-          rescue => e
+            puts(ok ? '[+] ZIP upload successful'.colorize(:green) : '[!] ZIP upload failed'.colorize(:red))
+          rescue StandardError => e
             puts "[!] ZIP/upload error: #{e.message}".colorize(:red)
           ensure
-            File.delete(zip_path) if File.exist?(zip_path)
+            FileUtils.rm_f(zip_path)
           end
         when '4', '', nil
-          puts "Exiting file operations menu.".colorize(:light_black)
+          puts 'Exiting file operations menu.'.colorize(:light_black)
           break
         else
-          puts "Invalid option.".colorize(:yellow)
+          puts 'Invalid option.'.colorize(:yellow)
         end
       end
     end
@@ -164,6 +168,7 @@ module EvilCTF
     # Remove temporary part files on the remote host (best-effort)
     def self.cleanup_tmp(remote_tmp, shell_or_adapter)
       return unless remote_tmp && shell_or_adapter
+
       begin
         adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
         escaped = EvilCTF::Utils.escape_ps_string(remote_tmp)
@@ -174,7 +179,7 @@ module EvilCTF
           } catch { "ERROR: $($_.Exception.Message)" }
         PS
         adapter.run(ps)
-      rescue => _e
+      rescue StandardError => _e
         nil
       end
     end
