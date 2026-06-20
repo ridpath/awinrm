@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 # Demo script to run the TUI demo mode without a live session
 begin
   require 'bundler/setup'

@@ -19,9 +19,7 @@ module EvilCTF
         @history = []
       end
 
-      def history
-        @history
-      end
+      attr_reader :history
     end
   end
 end

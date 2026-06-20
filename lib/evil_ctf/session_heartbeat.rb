@@ -22,7 +22,7 @@ module EvilCTF
           begin
             result = EvilCTF::Execution.run(@shell, '$env:COMPUTERNAME', timeout: 8)
             payload = {
-              connected: !!result&.ok,
+              connected: !result&.ok.nil?,
               hostname: result&.output.to_s.strip,
               checked_at: Time.now
             }

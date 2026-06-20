@@ -5,14 +5,14 @@
 module EvilCTF
   module Compat
     module SilenceWarnings
-      WINRM_OBJECT_ID_WARNING = /winrm\/psrp\/(fragment|message_fragmenter)\.rb:\d+: warning: redefining 'object_id' may cause serious problems/
-      WINRM_REDEFINE_WARNING = /winrm\/psrp\/.*warning: redefining 'object_id' may cause serious problems/
+      WINRM_OBJECT_ID_WARNING = %r{winrm/psrp/(fragment|message_fragmenter)\.rb:\d+: warning: redefining 'object_id' may cause serious problems}
+      WINRM_REDEFINE_WARNING = %r{winrm/psrp/.*warning: redefining 'object_id' may cause serious problems}
 
       module WarningFilter
-        def warn(message, category: nil, **kwargs)
+        def warn(message, category: nil, **)
           return if message.to_s.match?(WINRM_OBJECT_ID_WARNING)
 
-          super(message, category: category, **kwargs)
+          super
         rescue ArgumentError
           # Older Ruby warning signatures may not support category/kwargs.
           super(message)

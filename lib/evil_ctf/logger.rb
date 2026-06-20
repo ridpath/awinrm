@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'fileutils'
 
 module EvilCTF
@@ -18,23 +19,41 @@ module EvilCTF
 
     def close
       return unless @file
-      @file.close rescue nil
+
+      begin
+        @file.close
+      rescue StandardError
+        nil
+      end
       @file = nil
     end
 
-    def info(msg); puts "[+] #{msg}"; write(msg) end
-    def warn(msg); puts "[!] #{msg}"; write(msg) end
-    def error(msg); puts "[-] #{msg}"; write(msg) end
+    def info(msg)
+      puts "[+] #{msg}"
+      write(msg)
+    end
 
-    def log_command(cmd, result, elapsed = nil, meta = {})
+    def warn(msg)
+      puts "[!] #{msg}"
+      write(msg)
+    end
+
+    def error(msg)
+      puts "[-] #{msg}"
+      write(msg)
+    end
+
+    def log_command(cmd, result, elapsed = nil, _meta = {})
       write("[CMD] #{cmd} => exit=#{result&.exitcode} time=#{elapsed}")
     end
 
     private
+
     def write(msg)
       return unless @file
+
       @file.puts("[#{Time.now}] #{msg}")
-    rescue
+    rescue StandardError
       nil
     end
   end

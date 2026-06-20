@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'base64'
 require 'concurrent'
 require 'digest'
@@ -14,10 +15,14 @@ module EvilCTF
   module ShellAdapter
     # Try to wrap given object into an adapter that responds to `run(cmd)` and `close`.
     def self.wrap(obj)
-      return obj if obj.respond_to?(:run) && obj.respond_to?(:close) && obj.respond_to?(:adapter_info) rescue false
+      begin
+        return obj if obj.respond_to?(:run) && obj.respond_to?(:close) && obj.respond_to?(:adapter_info)
+      rescue StandardError
+        false
+      end
       if defined?(WinRM) && obj.is_a?(WinRM::Connection)
         WinRMShellAdapter.new_from_connection(obj)
-      elsif defined?(WinRM) && obj.class.to_s =~ /WinRM::Shell/ || (obj.respond_to?(:run) && obj.respond_to?(:close))
+      elsif (defined?(WinRM) && obj.class.to_s =~ /WinRM::Shell/) || (obj.respond_to?(:run) && obj.respond_to?(:close))
         WinRMShellAdapter.new_from_shell(obj)
       else
         GenericAdapter.new(obj)
@@ -30,11 +35,9 @@ module EvilCTF
       end
 
       def run(cmd)
-        if @obj.respond_to?(:run)
-          @obj.run(cmd)
-        else
-          raise EvilCTF::Errors::ConnectionError, 'Wrapped object does not support run(cmd)'
-        end
+        raise EvilCTF::Errors::ConnectionError, 'Wrapped object does not support run(cmd)' unless @obj.respond_to?(:run)
+
+        @obj.run(cmd)
       end
 
       def close
@@ -62,27 +65,28 @@ module EvilCTF
           cv = ConditionVariable.new
 
           worker = Thread.new do
-            begin
-              response = @shell_adapter.run(command)
-              mutex.synchronize do
-                next if done
-                done = true
-                result = response
-                cv.broadcast
-              end
-            rescue StandardError => e
-              mutex.synchronize do
-                next if done
-                done = true
-                result = OpenStruct.new(output: "ERROR: #{e.class}: #{e.message}")
-                cv.broadcast
-              end
+            response = @shell_adapter.run(command)
+            mutex.synchronize do
+              next if done
+
+              done = true
+              result = response
+              cv.broadcast
+            end
+          rescue StandardError => e
+            mutex.synchronize do
+              next if done
+
+              done = true
+              result = OpenStruct.new(output: "ERROR: #{e.class}: #{e.message}")
+              cv.broadcast
             end
           end
 
           timer = Concurrent::TimerTask.new(execution_interval: timeout.to_f, run_now: false) do
             mutex.synchronize do
               next if done
+
               done = true
               worker.kill if worker.alive?
               result = OpenStruct.new(output: "ERROR: TIMED_OUT after #{timeout}s")
@@ -94,7 +98,8 @@ module EvilCTF
           mutex.synchronize { cv.wait(mutex) until done }
           result
         rescue StandardError => e
-          EvilCTF::EngineAudit.error(message: 'internal file manager remote run failed', error: e, source: 'internal_file_manager')
+          EvilCTF::EngineAudit.error(message: 'internal file manager remote run failed', error: e,
+                                     source: 'internal_file_manager')
           OpenStruct.new(output: "ERROR: #{e.class}: #{e.message}")
         ensure
           timer&.shutdown
@@ -127,18 +132,18 @@ module EvilCTF
             while (chunk = file.read(chunk_size))
               b64 = Base64.strict_encode64(chunk)
               append_ps = <<~PS
-                try {
-                  $b64 = @'
-#{b64}
-'@
-                  $bytes = [Convert]::FromBase64String($b64)
-                  $fs = [System.IO.File]::Open('#{escaped_remote}', [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
-                  $fs.Write($bytes, 0, $bytes.Length)
-                  $fs.Close()
-                  'OK'
-                } catch {
-                  "ERROR: $($_.Exception.Message)"
-                }
+                                try {
+                                  $b64 = @'
+                #{b64}
+                '@
+                                  $bytes = [Convert]::FromBase64String($b64)
+                                  $fs = [System.IO.File]::Open('#{escaped_remote}', [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+                                  $fs.Write($bytes, 0, $bytes.Length)
+                                  $fs.Close()
+                                  'OK'
+                                } catch {
+                                  "ERROR: $($_.Exception.Message)"
+                                }
               PS
               append_res = run_remote(command: append_ps, timeout: 60)
               unless append_res && append_res.output.to_s.include?('OK')
@@ -160,8 +165,10 @@ module EvilCTF
           verify_res = run_remote(command: verify_ps, timeout: 45)
           remote_hash = verify_res&.output.to_s.scan(/[0-9A-Fa-f]{64}/).first
           if remote_hash.to_s.downcase != local_hash.downcase
-            raise EvilCTF::Errors::UploadError, "InternalFileManager hash mismatch local=#{local_hash} remote=#{remote_hash}"
+            raise EvilCTF::Errors::UploadError,
+                  "InternalFileManager hash mismatch local=#{local_hash} remote=#{remote_hash}"
           end
+
           true
         end
 
@@ -213,7 +220,10 @@ module EvilCTF
           PS
           verify_res = run_remote(command: verify_ps, timeout: 45)
           remote_hash = verify_res&.output.to_s.scan(/[0-9A-Fa-f]{64}/).first
-          raise EvilCTF::Errors::DownloadError, "InternalFileManager hash mismatch local=#{local_hash} remote=#{remote_hash}" if remote_hash.to_s.downcase != local_hash.downcase
+          if remote_hash.to_s.downcase != local_hash.downcase
+            raise EvilCTF::Errors::DownloadError,
+                  "InternalFileManager hash mismatch local=#{local_hash} remote=#{remote_hash}"
+          end
 
           true
         end
@@ -244,7 +254,11 @@ module EvilCTF
       def initialize_from_shell(shell)
         @shell = shell
         # try to find connection if available
-        @conn = shell.instance_variable_get(:@connection) || shell.instance_variable_get(:@conn) rescue nil
+        @conn = begin
+          shell.instance_variable_get(:@connection) || shell.instance_variable_get(:@conn)
+        rescue StandardError
+          nil
+        end
         @run_mutex = shared_run_mutex(@shell)
       end
 
@@ -252,13 +266,13 @@ module EvilCTF
         @run_mutex.synchronize do
           @shell.run(cmd)
         end
-      rescue => e
+      rescue StandardError => e
         raise EvilCTF::Errors::ConnectionError, e.message
       end
 
       def close
-        @shell.close if @shell
-        begin; @conn.reset if @conn && @conn.respond_to?(:reset); rescue; end
+        @shell&.close
+        begin; @conn.reset if @conn.respond_to?(:reset); rescue StandardError; end
       end
 
       def adapter_info
@@ -268,8 +282,9 @@ module EvilCTF
       # Return an internal file manager implementation (WinRM::FS optional).
       def file_manager
         return nil unless @shell
+
         InternalFileManager.new(shell_adapter: self)
-      rescue
+      rescue StandardError
         nil
       end
 

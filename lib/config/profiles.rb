@@ -33,6 +33,7 @@ module EvilCTF
             # If the file is wrapped in a top-level profile key, prefer that object.
             nested = data[name.to_s] || data[name.to_sym]
             return symbolize_hash(nested) if nested.is_a?(Hash)
+
             return symbolize_hash(data)
           end
         end
@@ -50,7 +51,7 @@ module EvilCTF
 
         profiles_dir = File.join(root, 'profiles')
         if Dir.exist?(profiles_dir)
-          Dir.glob(File.join(profiles_dir, '*.yaml')).sort.each do |path|
+          Dir.glob(File.join(profiles_dir, '*.yaml')).each do |path|
             names << File.basename(path, '.yaml')
           end
         end

@@ -9,17 +9,17 @@ module EvilCTF
       def hotkey_for(key:, mode:)
         return nil if key.nil?
 
-        return :focus_sidebar if key == :alt_1 || key == "\e1"
-        return :focus_cli if key == :alt_2 || key == "\e2"
+        return :focus_sidebar if [:alt_1, "\e1"].include?(key)
+        return :focus_cli if [:alt_2, "\e2"].include?(key)
         return nil if mode == :insert
 
-        return :sessions if key == 'S' || key == 's'
-        return :tools if key == 'T' || key == 't'
-        return :macros if key == 'M' || key == 'm'
-        return :profiles if key == 'P' || key == 'p'
-        return :settings if key == 'E' || key == 'e'
-        return :upload if key == 'U' || key == 'u' || key == :f5
-        return :download if key == 'D' || key == 'd' || key == :f6
+        return :sessions if %w[S s].include?(key)
+        return :tools if %w[T t].include?(key)
+        return :macros if %w[M m].include?(key)
+        return :profiles if %w[P p].include?(key)
+        return :settings if %w[E e].include?(key)
+        return :upload if ['U', 'u', :f5].include?(key)
+        return :download if ['D', 'd', :f6].include?(key)
 
         nil
       end
@@ -72,12 +72,13 @@ module EvilCTF
           dir = File.join(@root_path, dir_name)
           next unless Dir.exist?(dir)
 
-          Dir.glob(File.join(dir, '**', '*')).sort.each do |path|
+          Dir.glob(File.join(dir, '**', '*')).each do |path|
             next unless File.file?(path)
+
             ext = File.extname(path).downcase
             next unless ALLOWED_EXTENSIONS.include?(ext)
 
-            rel = path.sub(/^#{Regexp.escape(@root_path)}\//, '')
+            rel = path.sub(%r{^#{Regexp.escape(@root_path)}/}, '')
             entries << {
               name: File.basename(path),
               path: rel,
@@ -125,10 +126,10 @@ module EvilCTF
         return nil unless prompt
 
         selection = prompt.select('Settings', [
-          'Toggle Logging',
-          'Change Theme',
-          'Adjust Scrollback Limit'
-        ])
+                                    'Toggle Logging',
+                                    'Change Theme',
+                                    'Adjust Scrollback Limit'
+                                  ])
 
         case selection
         when 'Toggle Logging'
@@ -144,8 +145,6 @@ module EvilCTF
           limit = [value.to_i, 50].max
           @app_state.set_setting(:scrollback_limit, limit)
           { type: :scrollback_limit, value: limit }
-        else
-          nil
         end
       end
     end
@@ -284,11 +283,9 @@ module EvilCTF
         end
 
         Thread.new do
-          begin
-            @transfer_callback.call(direction: direction, shell: shell)
-          rescue StandardError => e
-            @app_state.append_stream("[!] #{direction} failed: #{e.class}: #{e.message}")
-          end
+          @transfer_callback.call(direction: direction, shell: shell)
+        rescue StandardError => e
+          @app_state.append_stream("[!] #{direction} failed: #{e.class}: #{e.message}")
         end
       end
     end

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'thread'
 require_relative 'execution'
 require_relative 'sanitizer'
 require_relative 'engine_audit'
@@ -29,7 +28,7 @@ module EvilCTF
       )
       @mutex.synchronize do
         @priority_buffer << job
-        @priority_buffer.sort_by! { |item| item.priority }
+        @priority_buffer.sort_by!(&:priority)
         @priority_buffer.each { |item| @queue << item }
         @priority_buffer.clear
       end
@@ -53,7 +52,7 @@ module EvilCTF
       )
       @mutex.synchronize do
         @priority_buffer << job
-        @priority_buffer.sort_by! { |item| item.priority }
+        @priority_buffer.sort_by!(&:priority)
         @priority_buffer.each { |item| @queue << item }
         @priority_buffer.clear
       end
@@ -75,6 +74,7 @@ module EvilCTF
       while @running
         item = @queue.pop
         break if item == :shutdown
+
         process(job: item)
       end
     rescue StandardError => e

@@ -14,9 +14,7 @@ module EvilCTF
         loop do
           # Check global flag at the top of loop (set by Signal.trap in main)
           last_command_was_tool_upload = false
-          if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
-            should_exit = true
-          end
+          should_exit = true if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
           break if should_exit
 
           begin
@@ -27,14 +25,12 @@ module EvilCTF
 
               # Create a thread to read input with timeout
               input_thread = Thread.new do
-                begin
-                  input = Readline.readline(prompt, true)
-                rescue Interrupt
-                  # Handle interrupt in the reading thread
-                  $evil_ctf_should_exit = true
-                  should_exit = true
-                  return
-                end
+                input = Readline.readline(prompt, true)
+              rescue Interrupt
+                # Handle interrupt in the reading thread
+                $evil_ctf_should_exit = true
+                should_exit = true
+                return
               end
 
               # Wait for input or timeout (with short interval to check exit flag)
@@ -133,9 +129,9 @@ module EvilCTF
             puts "\n[!] Ctrl-C detected; exiting."
             $evil_ctf_should_exit = true
             should_exit = true
-          rescue => e
+          rescue StandardError => e
             # Handle connection errors gracefully
-            if e.is_a?(WinRM::WinRMAuthorizationError) || (defined?(Net::HTTPServerException) && e.is_a?(Net::HTTPServerException))
+            if e.is_a?(WinRM::WinRMAuthorizationError) || (defined?(Net::HTTPClientException) && e.is_a?(Net::HTTPClientException))
               puts "[!] WARNING - Connection lost: #{e.message}"
               puts '  This may indicate: session timeout, network issues, or firewall changes'
               should_exit = true
@@ -154,12 +150,10 @@ module EvilCTF
             end
 
             # Check exit flag in error handler too:
-            if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
-              should_exit = true
-            end
+            should_exit = true if defined?($evil_ctf_should_exit) && $evil_ctf_should_exit
 
             # Safe reconnect logic with exit check:
-            if session_options[:reconnect_attempts].to_i > 0 && !should_exit
+            if session_options[:reconnect_attempts].to_i.positive? && !should_exit
               puts "[*] Attempting to reconnect (#{session_options[:reconnect_attempts]} attempts remaining)..."
               sleep(5)
               session_options[:reconnect_attempts] -= 1

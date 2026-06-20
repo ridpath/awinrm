@@ -27,10 +27,10 @@ module EvilCTF
       end
 
       def configure_shell(shell)
-        shell.run(%q{
+        shell.run('
           function prompt { "PS $pwd> " }
           Set-Alias __exit__ Exit-PSSession
-        })
+        ')
       end
 
       def start_heartbeat(shell, session_options)
@@ -70,15 +70,13 @@ module EvilCTF
       end
 
       def launch_tui(shell, session_options)
-        begin
-          puts '[*] Launching TUI...'
-          EvilCTF::TUI.start_rainfrog(shell, session_options)
-        rescue StandardError => e
-          puts "[!] Failed to start TUI: #{e.class}: #{e.message}"
-        ensure
-          EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
-          shell.close if shell
-        end
+        puts '[*] Launching TUI...'
+        EvilCTF::TUI.start_rainfrog(shell, session_options)
+      rescue StandardError => e
+        puts "[!] Failed to start TUI: #{e.class}: #{e.message}"
+      ensure
+        EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
+        shell&.close
       end
 
       def run_enum_preset(shell, session_options, logger)
@@ -96,7 +94,7 @@ module EvilCTF
           EvilCTF::SQLEnum.run_sql_enum(shell)
         else
           EvilCTF::Enums.run_enumeration(shell, type: session_options[:enum], cache: enum_cache,
-                                         fresh: session_options[:fresh])
+                                                fresh: session_options[:fresh])
         end
       end
     end

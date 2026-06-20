@@ -3,6 +3,7 @@
 
 # AWINRM CTF Edition
 
+require 'English'
 require 'optparse'
 require_relative '../lib/compat/silence_warnings'
 require 'winrm'
@@ -15,7 +16,6 @@ require 'base64'
 require 'zip'
 require 'yaml'
 require 'open-uri'
-require 'thread'
 require 'net/http'
 require 'json'
 require 'uri'
@@ -24,21 +24,28 @@ require 'readline'
 require 'shellwords'
 require 'tmpdir'
 require 'concurrent'
-require 'set'
 
 Signal.trap('INT') do
-  LOGGER&.warn("\nCtrl-C detected, exiting cleanly...") rescue nil
+  begin
+    LOGGER&.warn("\nCtrl-C detected, exiting cleanly...")
+  rescue StandardError
+    nil
+  end
   $evil_ctf_should_exit = true
   # Force exit if we're in a blocking operation
-  Thread.new { sleep(5); exit! } if defined?($evil_ctf_should_exit)
+  if defined?($evil_ctf_should_exit)
+    Thread.new do
+      sleep(5)
+      exit!
+    end
+  end
 end
-
 
 # Root namespace
 module EvilCTF; end
 
 # Set up lib path
-base_path = File.expand_path(File.dirname(__FILE__) + '/..')
+base_path = File.expand_path("#{File.dirname(__FILE__)}/..")
 lib_path  = File.join(base_path, 'lib')
 $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
 
@@ -51,7 +58,6 @@ if ARGV.any? { |a| a.to_s.start_with?('--tui') || a.to_s == '--tui' }
     # bundler not available system-wide; user can run with `bundle exec` instead
   end
 end
-
 
 # Load modular components
 require 'evil_ctf/session'
@@ -75,7 +81,7 @@ def run_preflight_check
         LOGGER&.info("[+] Created missing directory: #{dir}/")
       end
     end
-  rescue => e
+  rescue StandardError => e
     LOGGER&.error("[!] Failed preflight check: #{e.message}")
     exit 1
   end
@@ -90,13 +96,13 @@ def add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
   LOGGER&.info("[*] Adding IPv6 entry to #{hosts_file}: #{entry}")
   cmd = "echo '#{entry}' >> #{hosts_file}"
 
-  if Process.uid == 0
+  if Process.uid.zero?
     system(cmd)
   else
     system("sudo sh -c \"#{cmd}\"")
   end
 
-  unless $?.success?
+  unless $CHILD_STATUS.success?
     LOGGER&.error("[!] Failed to add entry. Manually add: sudo echo '#{entry}' >> #{hosts_file}")
     exit 1
   end
@@ -112,11 +118,10 @@ options = {
   webhook: nil, logfile: nil, proxy: nil, profile: nil,
   list_tools: false, enum: nil, fresh: false, hosts: nil,
   kerberos: false, realm: nil, keytab: nil,
-  banner_mode: :minimal  # NEW: Default to minimal banner for CTF
+  banner_mode: :minimal # NEW: Default to minimal banner for CTF
 }
 
 options[:debug] = false
-
 
 # Delegate all CLI parsing and execution to EvilCTF::CLI
 exit EvilCTF::CLI.run(ARGV)
@@ -152,19 +157,19 @@ if options[:hosts]
   LOGGER&.info("[*] Found #{hosts.size} host(s)")
 
   hosts.each_with_index do |host, idx|
-    LOGGER&.info("\n#{'='*60}")
-    LOGGER&.info("[*] Host #{idx+1}/#{hosts.size}: #{host[:ip]}")
-    LOGGER&.info("#{'='*60}")
+    LOGGER&.info("\n#{'=' * 60}")
+    LOGGER&.info("[*] Host #{idx + 1}/#{hosts.size}: #{host[:ip]}")
+    LOGGER&.info(('=' * 60).to_s)
 
     add_ipv6_to_hosts(host[:ip].split('%').first, 'ipv6addr') if host[:ip].include?(':')
 
     session_options = options.dup.merge({
-      ip: host[:ip], user: host[:user], password: host[:password], hash: host[:hash]
-    })
+                                          ip: host[:ip], user: host[:user], password: host[:password], hash: host[:hash]
+                                        })
 
     begin
       EvilCTF::Session.run_session(session_options)
-    rescue => e
+    rescue StandardError => e
       LOGGER&.error("[!] Error with #{host[:ip]}: #{e.message}")
     end
 

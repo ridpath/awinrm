@@ -14,13 +14,13 @@ module EvilCTF
       tools_dir = File.join(@root_path, 'tools')
       return [] unless Dir.exist?(tools_dir)
 
-      Dir.glob(File.join(tools_dir, '**', '*')).sort.filter_map do |path|
+      Dir.glob(File.join(tools_dir, '**', '*')).filter_map do |path|
         next unless File.file?(path)
         next if path.end_with?('.yml', '.yaml')
 
         Tool.new(
           name: File.basename(path),
-          path: path.sub(/^#{Regexp.escape(@root_path)}\//, ''),
+          path: path.sub(%r{^#{Regexp.escape(@root_path)}/}, ''),
           metadata: metadata_for(path: path)
         )
       end

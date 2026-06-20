@@ -118,9 +118,7 @@ module EvilCTF
               puts "[*] Extracting ZIP locally for #{tool[:name]}..."
               begin
                 Zip::File.open(local_path) do |zip_file|
-                  if zip_file.find_entry(tool[:zip_pick])
-                    zip_file.extract(tool[:zip_pick], local_path.gsub('.zip', ''))
-                  end
+                  zip_file.extract(tool[:zip_pick], local_path.gsub('.zip', '')) if zip_file.find_entry(tool[:zip_pick])
                 end
               rescue StandardError => e
                 puts "[!] ZIP extraction failed locally: #{e.message}"

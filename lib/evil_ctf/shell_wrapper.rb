@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/evil_ctf/shell_wrapper.rb
 require_relative '../compat/silence_warnings'
 require 'winrm'
@@ -13,12 +15,16 @@ module EvilCTF
       begin
         host, port = proxy.split(':')
         TCPSocket.socks_server = host
-        TCPSocket.socks_port = port.to_i if port && Integer(port) rescue false
+        begin
+          TCPSocket.socks_port = port.to_i if port && Integer(port)
+        rescue StandardError
+          false
+        end
 
         puts "[*] SOCKS proxy configured: #{host}:#{port}".colorize(:cyan)
-      rescue => e
+      rescue StandardError => e
         puts "[!] WARNING - Failed to configure SOCKS proxy: #{e.message}".colorize(:yellow)
-        puts " This may affect all subsequent connection attempts".colorize(:light_black)
+        puts ' This may affect all subsequent connection attempts'.colorize(:light_black)
       end
     end
 
@@ -32,7 +38,7 @@ module EvilCTF
         ssl: ssl
       )
       unless conn
-        puts "[!] WARNING - Could not create WinRM connection for test.".colorize(:yellow)
+        puts '[!] WARNING - Could not create WinRM connection for test.'.colorize(:yellow)
         return false
       end
 
@@ -46,10 +52,10 @@ module EvilCTF
           puts "[+] Connection test successful - #{endpoint} is accessible".colorize(:green)
         else
           puts "[!] WARNING - Connection test failed for #{endpoint}".colorize(:yellow)
-          puts " Empty response received. This could indicate:".colorize(:light_black)
-          puts " - Firewall blocking access".colorize(:light_black)
-          puts " - WinRM service not properly configured".colorize(:light_black)
-          puts " - Network connectivity issues".colorize(:light_black)
+          puts ' Empty response received. This could indicate:'.colorize(:light_black)
+          puts ' - Firewall blocking access'.colorize(:light_black)
+          puts ' - WinRM service not properly configured'.colorize(:light_black)
+          puts ' - Network connectivity issues'.colorize(:light_black)
         end
 
         success
@@ -57,43 +63,43 @@ module EvilCTF
         if e.message.include?('5985') || e.message.include?('5986')
           puts "[!] WARNING - Connection failed for #{endpoint}".colorize(:yellow)
           puts " Port #{e.message.split(':').last} (WinRM default) is not open".colorize(:light_black)
-          puts " Check if WinRM service is running and ports are accessible".colorize(:light_black)
+          puts ' Check if WinRM service is running and ports are accessible'.colorize(:light_black)
         else
           puts "[!] WARNING - Connection test failed: #{e.message}".colorize(:yellow)
-          puts " This may indicate network connectivity issues or incorrect endpoint configuration".colorize(:light_black)
+          puts ' This may indicate network connectivity issues or incorrect endpoint configuration'.colorize(:light_black)
         end
         false
-      rescue WinRM::WinRMAuthenticationError => e
+      rescue WinRM::WinRMAuthenticationError
         if user && pass
           puts "[!] WARNING - Authentication failed for #{user}@#{endpoint}".colorize(:yellow)
-          puts " Invalid credentials provided. Try different username/password combinations".colorize(:light_black)
+          puts ' Invalid credentials provided. Try different username/password combinations'.colorize(:light_black)
         else
-          puts "[!] WARNING - Connection test failed with hash-based auth".colorize(:yellow)
-          puts " Possible issues with the hash or Kerberos configuration".colorize(:light_black)
+          puts '[!] WARNING - Connection test failed with hash-based auth'.colorize(:yellow)
+          puts ' Possible issues with the hash or Kerberos configuration'.colorize(:light_black)
         end
         false
       rescue WinRM::WinRMTransportError => e
         if ssl && e.message.include?('SSL')
           puts "[!] WARNING - SSL connection failed for #{endpoint}".colorize(:yellow)
-          puts " Check certificate validity and network connectivity".colorize(:light_black)
-          puts " Try without SSL or with different certificate settings".colorize(:light_black)
+          puts ' Check certificate validity and network connectivity'.colorize(:light_black)
+          puts ' Try without SSL or with different certificate settings'.colorize(:light_black)
         else
           puts "[!] WARNING - Connection test failed (transport error): #{e.message}".colorize(:yellow)
-          puts " This may indicate network issues or incorrect transport configuration".colorize(:light_black)
+          puts ' This may indicate network issues or incorrect transport configuration'.colorize(:light_black)
         end
         false
-      rescue WinRM::WinRMEndpointUnavailableError => e
+      rescue WinRM::WinRMEndpointUnavailableError
         puts "[!] WARNING - Connection failed for #{endpoint}".colorize(:yellow)
-        puts " WinRM service may not be running (check if HTTP/HTTPS listener is enabled)".colorize(:light_black)
-      rescue WinRM::WinRMSessionError => e
+        puts ' WinRM service may not be running (check if HTTP/HTTPS listener is enabled)'.colorize(:light_black)
+      rescue WinRM::WinRMSessionError
         puts "[!] WARNING - Session creation failed for #{endpoint}".colorize(:yellow)
-        puts " This may indicate issues with the PowerShell session setup".colorize(:light_black)
-      rescue => e
+        puts ' This may indicate issues with the PowerShell session setup'.colorize(:light_black)
+      rescue StandardError => e
         puts "[!] WARNING - Connection test failed: #{e.message}".colorize(:yellow)
-        puts " This is a generic connection error. Check network connectivity and target system status".colorize(:light_black)
+        puts ' This is a generic connection error. Check network connectivity and target system status'.colorize(:light_black)
       end
 
-      begin; conn.reset; rescue; end if defined?(conn) && conn.respond_to?(:reset)
+      begin; conn.reset; rescue StandardError; end if defined?(conn) && conn.respond_to?(:reset)
     end
 
     # ---------- Create connection ----------
@@ -110,8 +116,8 @@ module EvilCTF
     # ---------- Exit handling ----------
     def self.exit_session(shell)
       begin
-        shell.close if shell
-      rescue => e
+        shell&.close
+      rescue StandardError => e
         puts "[!] WARNING - shell.close failed: #{e.message}".colorize(:yellow)
       end
       :exit

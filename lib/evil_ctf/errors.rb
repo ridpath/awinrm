@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module EvilCTF
   module Errors
     class Error < StandardError; end

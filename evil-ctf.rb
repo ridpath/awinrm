@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-BASE = File.expand_path(File.dirname(__FILE__))
+BASE = __dir__
 $LOAD_PATH.unshift(File.join(BASE, 'lib'))
 
 require 'evil_ctf/cli'

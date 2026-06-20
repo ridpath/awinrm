@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'ostruct'
 require 'concurrent'
 require 'securerandom'
@@ -12,11 +13,9 @@ module EvilCTF
 
     def run_with_timer(timeout:, &block)
       worker = Thread.new do
-        begin
-          block.call
-        rescue StandardError => e
-          e
-        end
+        block.call
+      rescue StandardError => e
+        e
       end
       worker.report_on_exception = false if worker.respond_to?(:report_on_exception=)
 
@@ -63,7 +62,7 @@ module EvilCTF
         return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: TIMED_OUT after #{timeout}s")
       end
 
-      out_raw = result && result.output ? result.output.to_s : ''
+      out_raw = result&.output ? result.output.to_s : ''
       out = normalize_output(out_raw)
 
       exitcode = if result.respond_to?(:exitcode) && !result.exitcode.nil?
@@ -72,7 +71,7 @@ module EvilCTF
                    parse_exitcode_from_output(out)
                  end
 
-      ok = (exitcode == 0)
+      ok = exitcode.zero?
       OpenStruct.new(ok: ok, exitcode: exitcode, output: out)
     rescue StandardError => e
       EvilCTF::EngineAudit.error(message: 'execution.run failed', error: e, source: 'execution')
@@ -81,14 +80,15 @@ module EvilCTF
 
     def self.normalize_output(s)
       return '' if s.nil?
+
       str = s.dup
       # Detect UTF-16LE by presence of NULs and try to convert
       if str.encoding == Encoding::ASCII_8BIT || str.index("\x00")
         begin
           # strip trailing nulls and convert
-          tmp = str.gsub(/\x00/, '')
+          tmp = str.gsub("\x00", '')
           return tmp.encode('UTF-8', invalid: :replace, undef: :replace)
-        rescue
+        rescue StandardError
           return str.force_encoding('UTF-8').encode('UTF-8', invalid: :replace, undef: :replace)
         end
       end
@@ -97,11 +97,13 @@ module EvilCTF
 
     def self.parse_exitcode_from_output(out)
       return nil unless out && !out.empty?
+
       # Common patterns: 'exit code: 0', 'ExitCode: 0', 'Exited with code 0'
-      m = out.match(/(?:exit code|ExitCode|Exited with code|ExitCode\:?)\s*[:]?\s*(\d{1,3})/i)
+      m = out.match(/(?:exit code|ExitCode|Exited with code|ExitCode:?)\s*:?\s*(\d{1,3})/i)
       return m[1].to_i if m
       # If no explicit code, attempt to infer 0 if typical success words exist
       return 0 if out =~ /completed|OK|MOVED|COPIED/i
+
       nil
     end
 
@@ -125,18 +127,18 @@ module EvilCTF
 
       begin
         start_res = run(shell_or_adapter, start_job, timeout: 20)
-      rescue => e
+      rescue StandardError => e
         return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
       end
 
-      job_id = start_res && start_res.output ? start_res.output.to_s.scan(/\d+/).first.to_i : nil
-      unless job_id && job_id > 0
+      job_id = start_res&.output ? start_res.output.to_s.scan(/\d+/).first.to_i : nil
+      unless job_id&.positive?
         # fallback: if we couldn't start a job, run directly
         res = run(shell_or_adapter, sanitized, timeout: timeout)
         return OpenStruct.new(
-          ok: (res && res.respond_to?(:ok) ? !!res.ok : false),
-          exitcode: (res && res.respond_to?(:exitcode) ? res.exitcode : nil),
-          output: (res && res.output ? res.output.to_s : '')
+          ok: (res.respond_to?(:ok) ? !res.ok.nil? : false),
+          exitcode: (res.respond_to?(:exitcode) ? res.exitcode : nil),
+          output: (res&.output ? res.output.to_s : '')
         )
       end
 
@@ -147,9 +149,9 @@ module EvilCTF
           # read remote tmp file content (may be empty)
           read_ps = "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }"
           read_res = run(shell_or_adapter, read_ps, timeout: 20)
-          content = read_res && read_res.output ? read_res.output.to_s : ''
+          content = read_res&.output ? read_res.output.to_s : ''
           if content && content.length > last_content.length
-            new_text = content[last_content.length..-1]
+            new_text = content[last_content.length..]
             emit_nonblocking(text: new_text) do |chunk|
               yield chunk if block_given? && chunk && !chunk.empty?
             end
@@ -159,7 +161,7 @@ module EvilCTF
           # check job state
           state_ps = "try { (Get-Job -Id #{job_id} -ErrorAction SilentlyContinue).State } catch { 'Unknown' }"
           state_res = run(shell_or_adapter, state_ps, timeout: 20)
-          state = state_res && state_res.output ? state_res.output.to_s.strip : nil
+          state = state_res&.output&.to_s&.strip
           break if state && state =~ /Completed|Failed|Stopped/i
 
           sleep poll_interval
@@ -167,25 +169,28 @@ module EvilCTF
         end
 
         # final read
-        read_res = run(shell_or_adapter, "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }", timeout: 20)
-        final_output = read_res && read_res.output ? read_res.output.to_s : ''
+        read_res = run(shell_or_adapter,
+                       "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }", timeout: 20)
+        final_output = read_res&.output ? read_res.output.to_s : ''
 
         # cleanup job and tmp file
         begin
           adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue")
-        rescue
+        rescue StandardError
         end
         begin
           adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue")
-        rescue
+        rescue StandardError
         end
 
         OpenStruct.new(ok: true, exitcode: nil, output: final_output)
-      rescue => e
+      rescue StandardError => e
         EvilCTF::EngineAudit.error(message: 'execution.stream failed', error: e, source: 'execution')
-        begin; adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue"); rescue; end
-        begin; adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue"); rescue; end
-        return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
+        begin; adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue"); rescue StandardError; end
+        begin
+          adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue"); rescue StandardError
+        end
+        OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
       end
     end
 

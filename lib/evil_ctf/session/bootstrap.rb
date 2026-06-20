@@ -20,7 +20,7 @@ module EvilCTF
         end
 
         # Ensure port is set to WinRM default if missing or invalid
-        if !session_options[:port] || session_options[:port].to_s.strip == '' || session_options[:port].to_i == 0
+        if !session_options[:port] || session_options[:port].to_s.strip == '' || session_options[:port].to_i.zero?
           session_options[:port] = session_options[:ssl] ? 5986 : 5985
         end
 

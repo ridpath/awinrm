@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Compatibility shim: redirect legacy EvilCTF::Crypto calls to EvilCTF::Tools::Crypto
 require_relative 'tools/crypto'
 module EvilCTF

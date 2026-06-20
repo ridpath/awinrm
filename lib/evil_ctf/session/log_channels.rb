@@ -13,7 +13,7 @@ module EvilCTF
         log_dir = File.expand_path('../../../log', __dir__)
         FileUtils.mkdir_p(log_dir)
         ts = Time.now.strftime('%Y%m%d-%H%M%S')
-        ip_or_host = (session_options[:ip] || 'unknown').gsub(/[^\w\.-]/, '_')
+        ip_or_host = (session_options[:ip] || 'unknown').gsub(/[^\w.-]/, '_')
         session_logs = {
           operator: File.join(log_dir, "operator-#{ip_or_host}-#{ts}.log"),
           telemetry: File.join(log_dir, "telemetry-#{ip_or_host}-#{ts}.log"),

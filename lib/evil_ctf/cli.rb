@@ -23,7 +23,7 @@ module EvilCTF
       }
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: evil-ctf.rb [options]'
-        opts.on('-i', '--ip IP', 'Target IP / hostname')                  { |v| options[:ip] = v }
+        opts.on('-i', '--ip IP', 'Target IP / hostname') { |v| options[:ip] = v }
         opts.on('--ipv6 IP HOSTNAME', Array, 'Add IPv6 address and hostname to /etc/hosts') do |v|
           options[:ipv6] = v[0]
           options[:ipv6_hostname] = v[1]
@@ -60,8 +60,11 @@ module EvilCTF
         opts.on('--user-agent AGENT', 'Custom User-Agent for WinRM HTTP requests') { |v| options[:user_agent] = v }
         opts.on('--log-session', 'Enable session logging to disk (log/ directory)') { options[:log_session] = true }
         opts.on('--debug', 'Enable WinRM debug output (passes debug:true to WinRM client)') { options[:debug] = true }
-        opts.on('--no-verify', 'Skip connection validation')       { options[:verify] = false }
-        opts.on('-h', '--help', 'Show help')                             { puts opts; exit 0 }
+        opts.on('--no-verify', 'Skip connection validation') { options[:verify] = false }
+        opts.on('-h', '--help', 'Show help') do
+          puts opts
+          exit 0
+        end
       end
 
       parser.parse!(argv)
@@ -127,13 +130,13 @@ module EvilCTF
       end
 
       result = Session.run_session(options)
-      
+
       # Check for validation failure from session
       if result.is_a?(Array) && !result[0]
         puts "[!] Session validation failed: #{result[1]}" if result[1]
         exit 1
       elsif !result
-        puts "[!] Session failed"
+        puts '[!] Session failed'
         exit 1
       end
       0

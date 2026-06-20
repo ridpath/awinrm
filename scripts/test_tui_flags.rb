@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 # Test non-interactive TUI rendering paths without launching interactive TTY.
 $LOAD_PATH.unshift(File.expand_path('../', __dir__))
 require 'ostruct'
@@ -16,7 +18,7 @@ class MockShell
     when /systeminfo/
       OpenStruct.new(output: "OS Name: Microsoft Windows 11 Pro\nOS Version: 10.0.22631\n")
     else
-      OpenStruct.new(output: "")
+      OpenStruct.new(output: '')
     end
   end
 end
@@ -25,13 +27,13 @@ shell = MockShell.new
 
 puts '[*] Rendering dashboard with mock shell state...'
 EvilCTF::TUI.render_dashboard(shell, {
-  host: 'demo-host',
-  user: 'DEMO\\operator',
-  os_info: 'OS Name: Microsoft Windows 11 Pro',
-  connected: true,
-  shell: 'PowerShell',
-  ssl: false
-})
+                                host: 'demo-host',
+                                user: 'DEMO\\operator',
+                                os_info: 'OS Name: Microsoft Windows 11 Pro',
+                                connected: true,
+                                shell: 'PowerShell',
+                                ssl: false
+                              })
 
 puts '[*] Building fixed layout frame with mock flag lines...'
 frame = EvilCTF::TUI.build_fixed_layout_lines(

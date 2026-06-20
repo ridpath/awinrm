@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 # Test the dashboard render with a mock shell
 $LOAD_PATH.unshift(File.expand_path('../', __dir__))
 require 'ostruct'
@@ -15,9 +17,9 @@ class MockShell
     when /systeminfo /
       OpenStruct.new(output: "OS Name:                   Microsoft Windows Server 2019 Standard\nOS Version:                10.0.17763 N/A Build 17763\n")
     else
-      OpenStruct.new(output: "")
+      OpenStruct.new(output: '')
     end
   end
 end
 
-EvilCTF::TUI.render_dashboard(MockShell.new, {ip: '10.0.0.5', ssl: true})
+EvilCTF::TUI.render_dashboard(MockShell.new, { ip: '10.0.0.5', ssl: true })

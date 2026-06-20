@@ -5,7 +5,7 @@ module EvilCTF
     module Stager
       module_function
 
-      def safe_autostage(tool_key, shell, options, logger, registry:, download_tool_proc:)
+      def safe_autostage(tool_key, shell, _options, _logger, registry:, download_tool_proc:)
         tool = registry[tool_key]
         return false unless tool
 
@@ -45,7 +45,7 @@ module EvilCTF
             adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump.exe'
           end
         elsif tool_key == 'mimikatz' && tool[:zip]
-          adjusted_tool[:zip_pick] = (arch == 'x64') ? tool[:zip_pick_x64] : tool[:zip_pick_x86]
+          adjusted_tool[:zip_pick] = arch == 'x64' ? tool[:zip_pick_x64] : tool[:zip_pick_x86]
         end
 
         local_path = find_tool_on_disk(tool_key, registry: registry)
@@ -168,11 +168,11 @@ module EvilCTF
 
         search_patterns = tool[:search_patterns] || [tool[:filename]]
         base_dirs = [
-          ENV['HOME'],
-          File.join(ENV['HOME'], 'Downloads'),
-          File.join(ENV['HOME'], 'Desktop'),
-          File.join(ENV['HOME'], 'tools'),
-          File.join(ENV['HOME'], 'bin'),
+          Dir.home,
+          File.join(Dir.home, 'Downloads'),
+          File.join(Dir.home, 'Desktop'),
+          File.join(Dir.home, 'tools'),
+          File.join(Dir.home, 'bin'),
           Dir.pwd,
           File.join(Dir.pwd, 'tools')
         ].compact.uniq

@@ -4,10 +4,10 @@ module EvilCTF
   module Tools
     module LootScanner
       PATTERNS = [
-        /flag\{[^\}]+\}/i,
-        /htb\{[^\}]+\}/i,
-        /picoctf\{[^\}]+\}/i,
-        /ctf\{[^\}]+\}/i,
+        /flag\{[^}]+\}/i,
+        /htb\{[^}]+\}/i,
+        /picoctf\{[^}]+\}/i,
+        /ctf\{[^}]+\}/i,
         /password\s*[:=]\s*["']?([^"'\s]+)["']?/i,
         /Password\s*[:=]\s*["']?([^"'\s]+)["']?/i,
         /pwd\s*[:=]\s*["']?([^"'\s]+)["']?/i,
@@ -17,8 +17,8 @@ module EvilCTF
         /[A-Fa-f0-9]{40}/,
         /[A-Fa-f0-9]{64}/,
         /[A-Fa-f0-9]{128}/,
-        /[A-Za-z0-9+\/]{20,}={0,2}/,
-        /(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?/,
+        %r{[A-Za-z0-9+/]{20,}={0,2}},
+        %r{(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?},
         /-----BEGIN [A-Z ]+-----/,
         /-----END [A-Z ]+-----/,
         /jwt\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/i,
@@ -31,13 +31,13 @@ module EvilCTF
         /Hash\s*:\s*([A-F0-9]{32})/i,
         /AKIA[0-9A-Z]{16}/,
         /aws_secret_access_key\s*=\s*["']?([^"'\s]+)["']?/i,
-        /ssh-rsa AAAA[0-9A-Za-z+\/]+[=]{0,3}/,
+        %r{ssh-rsa AAAA[0-9A-Za-z+/]+={0,3}},
         /-----BEGIN PRIVATE KEY-----/,
         /sk-[a-zA-Z0-9]{48}/,
         /ghp_[0-9A-Za-z]{36}/,
         /AIza[0-9A-Za-z\-_]{35}/,
         /ya29\.[0-9A-Za-z\-_]+/,
-        /xoxp-[0-9A-Za-z\-]+/,
+        /xoxp-[0-9A-Za-z-]+/,
         /Bearer [A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/,
         /azure_client_secret\s*=\s*["']?([^"'\s]+)["']?/i,
         /DB_PASSWORD\s*=\s*["']?([^"'\s]+)["']?/i,
@@ -76,7 +76,9 @@ module EvilCTF
         end
 
         output.each_line do |line|
-          next if line.include?('CategoryInfo') || line.include?('FullyQualifiedErrorId') || line.include?('is not recognized')
+          if line.include?('CategoryInfo') || line.include?('FullyQualifiedErrorId') || line.include?('is not recognized')
+            next
+          end
 
           PATTERNS.each do |regex|
             line.scan(regex).each do |match|
