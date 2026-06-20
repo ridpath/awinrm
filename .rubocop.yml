@@ -1,0 +1,69 @@
+# AWINRM RuboCop configuration
+# CTF/post-exploitation tool — pragmatism over perfection
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  TargetRubyVersion: 4.0
+
+# ── Disabled cops ────────────────────────────────────────────────
+
+Style/Documentation:
+  Enabled: false                    # CTF tools don't need RDoc
+
+Style/FrozenStringLiteralComment:
+  Enabled: false                    # Not consistent across files yet
+
+# ── Metrics — raised thresholds for CTF tooling code ────────────
+
+Metrics/MethodLength:
+  Max: 120                          # Many bypass/script handlers are long
+
+Metrics/BlockLength:
+  Max: 250                          # RSpec describe blocks are naturally long
+  AllowedMethods: ['describe', 'context']
+
+Metrics/ClassLength:
+  Max: 500
+
+Metrics/ModuleLength:
+  Max: 600
+
+Metrics/AbcSize:
+  Max: 80
+
+Metrics/CyclomaticComplexity:
+  Max: 25
+
+Metrics/PerceivedComplexity:
+  Max: 25
+
+Metrics/ParameterLists:
+  Max: 10
+
+# ── Style — relaxed for operator tooling ────────────────────────
+
+Style/GlobalVars:
+  Enabled: false                    # $global vars used in PS script helpers
+
+Naming/MethodParameterName:
+  MinNameLength: 1                  # Single-char params fine in CTF tooling
+
+Naming/AccessorMethodName:
+  Enabled: false
+
+Naming/VariableNumber:
+  Enabled: false
+
+# ── Security — keep this one ────────────────────────────────────
+Security/Open:
+  Enabled: true
+
+# ── Lint — most are valuable, but suppress unused-arg noise in blocks ──
+Lint/UnusedBlockArgument:
+  Enabled: true
+  AllowUnusedKeywordArguments: false
+
+Lint/SuppressedException:
+  Enabled: true
+  AllowComments: true

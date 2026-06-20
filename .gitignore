@@ -15,5 +15,5 @@
 /tools/*
 !/tools/.gitkeep
 
-# Ignore test/spec files
-/spec/
+# Editor/IDE
+.late/
