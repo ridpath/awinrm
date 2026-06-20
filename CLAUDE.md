@@ -1,0 +1,3 @@
+<!-- BHIVED_CLAUDE -->
+@AGENTS.md
+<!-- BHIVED_CLAUDE -->
