@@ -124,14 +124,9 @@ module EvilCTF
         hostname = result.output.to_s.strip
 
         validation_result = { ok: true, hostname: hostname }
-      rescue WinRM::WinRMAuthenticationError => e
-        validation_result = { ok: false, hostname: nil, error: "AuthenticationError: #{e.message}" }
-      rescue WinRM::WinRMEndpointError => e
-        validation_result = { ok: false, hostname: nil, error: "EndpointError: #{e.message}" }
-      rescue WinRM::WinRMAuthorizationError => e
-        validation_result = { ok: false, hostname: nil, error: "AuthorizationError: #{e.message}" }
       rescue => e
-        validation_result = { ok: false, hostname: nil, error: "#{e.class}: #{e.message}" }
+        error_label = e.class.name.sub('WinRM::', '')
+        validation_result = { ok: false, hostname: nil, error: "#{error_label}: #{e.message}" }
       ensure
         # Only tear down the validation shell. The connection lifecycle is
         # owned by the caller and may be reused after validation.

@@ -195,10 +195,14 @@ module EvilCTF
 
       register('validate') do |shell, args, session_options|
         command_manager = session_options[:command_manager]
-        return 'Command manager unavailable' unless command_manager
+        unless command_manager
+          next 'Command manager unavailable'
+        end
 
         parsed = parse_validate_args(args)
-        return "validate parse error: #{parsed[:error]}" if parsed[:error]
+        if parsed[:error]
+          next "validate parse error: #{parsed[:error]}"
+        end
 
         case parsed[:target]
         when 'macros'
