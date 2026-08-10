@@ -29,6 +29,29 @@ module EvilCTF
           f.puts
         end
       end
+
+      # Operator-facing log levels used by AsyncWorker and background jobs.
+      def info(msg)
+        write_log('INFO', msg)
+      end
+
+      def warn(msg)
+        write_log('WARN', msg)
+      end
+
+      def error(msg)
+        write_log('ERROR', msg)
+      end
+
+      private
+
+      def write_log(level, msg)
+        return unless @logfile
+
+        File.open(@logfile, 'a') do |f|
+          f.puts "[#{Time.now}] [#{level}] #{msg}"
+        end
+      end
     end
   end
 end

@@ -13,6 +13,8 @@ module EvilCTF
         puts "[+] Connected to #{orig_ip}"
         show_banner(shell, session_options)
 
+        run_auto_evasion(shell) if session_options[:auto_evasion]
+
         EvilCTF::Session.setup_autocomplete(history)
         prompt_cache = detect_prompt(shell)
 
@@ -67,6 +69,13 @@ module EvilCTF
           nil
         end
         prompt_cache
+      end
+
+      def run_auto_evasion(shell)
+        puts '[*] Auto-evasion enabled; attempting to disable Defender...'
+        EvilCTF::Tools.disable_defender(shell)
+      rescue StandardError => e
+        puts "[!] Auto-evasion failed: #{e.class}: #{e.message}"
       end
 
       def launch_tui(shell, session_options)

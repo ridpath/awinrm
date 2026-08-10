@@ -139,6 +139,7 @@ module EvilCTF
       begin
         shell = conn.shell(:powershell)
         logger = SessionLogger.new(session_options[:logfile])
+        session_options[:logger] = logger
         history = CommandHistory.new
         command_manager = EvilCTF::Tools::CommandManager.new
 
@@ -256,6 +257,11 @@ module EvilCTF
       prompt.end_with?(' ') ? prompt : "#{prompt} "
     end
 
+    # Parse a hosts file of the form `ip:user:password[:hash]` (one per line).
+    # The host field may be an IPv6 literal (which itself contains colons), so
+    # candidate splits are validated before being accepted: the last three
+    # fields are preferred as user/password/hash, falling back to treating the
+    # last two fields as user/password.
     def self.parse_hosts_file(hosts_file)
       hosts = []
       return hosts unless File.exist?(hosts_file)
@@ -264,29 +270,46 @@ module EvilCTF
         line.strip!
         next if line.empty? || line.start_with?('#')
 
-        parts = line.split(':')
-        if parts.size >= 3
-          hosts << { ip: parts[0], user: parts[1], password: parts[2] || '', hash: parts[3] }
+        parsed = parse_host_line(line)
+        if parsed
+          hosts << parsed
         else
           puts "[!] Invalid host line: #{line}"
         end
-      ensure
-        # Ensure we always try to clean up remote shell and connection resources
-        begin
-          shell&.close
-        rescue StandardError => _e
-          # best-effort cleanup
-        end
-        begin
-          conn.reset if conn.respond_to?(:reset)
-        rescue StandardError => _e
-        end
-        begin
-          logger.close if defined?(logger) && logger.respond_to?(:close)
-        rescue StandardError => _e
-        end
       end
       hosts
+    end
+
+    def self.parse_host_line(line)
+      parts = line.split(':')
+      return nil if parts.size < 3
+
+      # Prefer <host>|<user>|<password>|<hash>; fall back to <host>|<user>|<password>.
+      [3, 2].each do |tail|
+        next if parts.size < tail + 1
+
+        host_candidate = parts[0, parts.size - tail].join(':')
+        next unless valid_host_field?(host_candidate)
+
+        user = parts[-tail]
+        password = parts[-tail + 1]
+        hash = tail == 3 ? parts[-1] : nil
+        return { ip: host_candidate, user: user, password: password || '', hash: hash }
+      end
+      nil
+    end
+
+    def self.valid_host_field?(host)
+      return false if host.nil? || host.empty?
+
+      # Plain IPv4 / hostname never contains a colon; anything with a colon must
+      # be a well-formed IPv6 literal (zone indices such as fd00::1%eth0 allowed).
+      return true unless host.include?(':')
+
+      IPAddr.new(host.split('%').first)
+      true
+    rescue IPAddr::InvalidAddressError
+      false
     end
 
     def self.load_config_profile(profile_name)

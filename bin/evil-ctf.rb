@@ -1,7 +1,10 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# AWINRM CTF Edition
+# AWINRM CTF Edition — launcher.
+# All CLI parsing and execution lives in EvilCTF::CLI so behaviour stays
+# in one place (see lib/evil_ctf/cli.rb). This file only sets up the load
+# path and delegates.
 
 require 'English'
 require 'optparse'
@@ -25,22 +28,6 @@ require 'shellwords'
 require 'tmpdir'
 require 'concurrent'
 
-Signal.trap('INT') do
-  begin
-    LOGGER&.warn("\nCtrl-C detected, exiting cleanly...")
-  rescue StandardError
-    nil
-  end
-  $evil_ctf_should_exit = true
-  # Force exit if we're in a blocking operation
-  if defined?($evil_ctf_should_exit)
-    Thread.new do
-      sleep(5)
-      exit!
-    end
-  end
-end
-
 # Root namespace
 module EvilCTF; end
 
@@ -51,7 +38,7 @@ $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
 
 # Auto-setup Bundler when the user requested the TUI so gems from
 # `vendor/bundle` are available even when running with plain `ruby`.
-if ARGV.any? { |a| a.to_s.start_with?('--tui') || a.to_s == '--tui' }
+if ARGV.any? { |a| a.to_s.start_with?('--tui') }
   begin
     require 'bundler/setup'
   rescue LoadError
@@ -59,135 +46,16 @@ if ARGV.any? { |a| a.to_s.start_with?('--tui') || a.to_s == '--tui' }
   end
 end
 
-# Load modular components
-require 'evil_ctf/session'
-require 'evil_ctf/tools'
-require 'evil_ctf/shell_wrapper'
-require 'evil_ctf/banner'
-require 'evil_ctf/enums'
-require 'evil_ctf/uploader'
-require 'evil_ctf/sql_enum'
-require 'evil_ctf/logger'
+# Graceful Ctrl-C: ask the session to exit, force-kill if it is stuck.
+Signal.trap('INT') do
+  warn "\nCtrl-C detected, exiting cleanly..."
+  $evil_ctf_should_exit = true
+  Thread.new do
+    sleep(5)
+    exit!
+  end
+end
+
 require 'evil_ctf/cli'
 
-# ---------------- Preflight Check ----------------
-def run_preflight_check
-  LOGGER&.info('[*] Running preflight check...')
-
-  begin
-    %w[loot profiles].each do |dir|
-      unless Dir.exist?(dir)
-        FileUtils.mkdir_p(dir)
-        LOGGER&.info("[+] Created missing directory: #{dir}/")
-      end
-    end
-  rescue StandardError => e
-    LOGGER&.error("[!] Failed preflight check: #{e.message}")
-    exit 1
-  end
-end
-
-# ---------------- IPv6 Workaround ----------------
-def add_ipv6_to_hosts(ip, hostname = 'ipv6addr')
-  hosts_file = '/etc/hosts'
-  entry = "#{ip} #{hostname}"
-  return if File.exist?(hosts_file) && File.read(hosts_file).include?(entry)
-
-  LOGGER&.info("[*] Adding IPv6 entry to #{hosts_file}: #{entry}")
-  cmd = "echo '#{entry}' >> #{hosts_file}"
-
-  if Process.uid.zero?
-    system(cmd)
-  else
-    system("sudo sh -c \"#{cmd}\"")
-  end
-
-  unless $CHILD_STATUS.success?
-    LOGGER&.error("[!] Failed to add entry. Manually add: sudo echo '#{entry}' >> #{hosts_file}")
-    exit 1
-  end
-
-  LOGGER&.info('[+] IPv6 entry added successfully')
-end
-
-# ---------------- Options ----------------
-options = {
-  ip: nil, user: nil, password: nil, hash: nil,
-  port: 5985, ssl: false, auto_exec: false, stealth: false,
-  random_names: false, auto_evasion: false, beacon: false,
-  webhook: nil, logfile: nil, proxy: nil, profile: nil,
-  list_tools: false, enum: nil, fresh: false, hosts: nil,
-  kerberos: false, realm: nil, keytab: nil,
-  banner_mode: :minimal # NEW: Default to minimal banner for CTF
-}
-
-options[:debug] = false
-
-# Delegate all CLI parsing and execution to EvilCTF::CLI
 exit EvilCTF::CLI.run(ARGV)
-
-# ---------------- Run Preflight ----------------
-# Temporary logger until options/profile are merged
-LOGGER = EvilCTF::Logger.new(nil)
-run_preflight_check
-
-# ---------------- Profile Load ----------------
-if options[:profile]
-  prof = EvilCTF::Session.load_config_profile(options[:profile])
-  options = prof.merge(options)
-end
-
-# Initialize global logger instance
-LOGGER = EvilCTF::Logger.new(options[:logfile])
-
-# ---------------- Tool Listing ----------------
-if options[:list_tools]
-  EvilCTF::Tools.list_available_tools
-  exit
-end
-
-# ---------------- Multi-host ----------------
-if options[:hosts]
-  LOGGER&.info("[*] Reading hosts file: #{options[:hosts]}")
-  hosts = EvilCTF::Session.parse_hosts_file(options[:hosts])
-  if hosts.empty?
-    LOGGER&.error('[-] No valid hosts found')
-    exit 1
-  end
-  LOGGER&.info("[*] Found #{hosts.size} host(s)")
-
-  hosts.each_with_index do |host, idx|
-    LOGGER&.info("\n#{'=' * 60}")
-    LOGGER&.info("[*] Host #{idx + 1}/#{hosts.size}: #{host[:ip]}")
-    LOGGER&.info(('=' * 60).to_s)
-
-    add_ipv6_to_hosts(host[:ip].split('%').first, 'ipv6addr') if host[:ip].include?(':')
-
-    session_options = options.dup.merge({
-                                          ip: host[:ip], user: host[:user], password: host[:password], hash: host[:hash]
-                                        })
-
-    begin
-      EvilCTF::Session.run_session(session_options)
-    rescue StandardError => e
-      LOGGER&.error("[!] Error with #{host[:ip]}: #{e.message}")
-    end
-
-    sleep(2) unless idx == hosts.size - 1
-  end
-
-  LOGGER&.info("\n[+] All sessions complete. Check ./loot/")
-  exit
-end
-
-# ---------------- Validate Single-Host ----------------
-%i[ip username].each do |k|
-  abort "[-] Missing required --#{k}" unless options[k]
-end
-
-options[:user] = options[:username] if options[:username]
-
-add_ipv6_to_hosts(options[:ip].split('%').first, 'ipv6addr') if options[:ip].include?(':')
-# ---------------- Session Start ----------------
-ok = EvilCTF::Session.run_session(options)
-LOGGER&.info('[+] Session closed. Loot saved under ./loot/') if ok

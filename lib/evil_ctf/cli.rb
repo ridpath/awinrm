@@ -24,9 +24,9 @@ module EvilCTF
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: evil-ctf.rb [options]'
         opts.on('-i', '--ip IP', 'Target IP / hostname') { |v| options[:ip] = v }
-        opts.on('--ipv6 IP HOSTNAME', Array, 'Add IPv6 address and hostname to /etc/hosts') do |v|
-          options[:ipv6] = v[0]
-          options[:ipv6_hostname] = v[1]
+        opts.on('--ipv6 IP,HOSTNAME', Array, 'Add IPv6 address and hostname to /etc/hosts') do |v|
+          options[:ipv6] = v[0] if v
+          options[:ipv6_hostname] = v[1] if v
         end
         opts.on('-u', '--username USERNAME', 'Username')                 { |v| options[:username] = v }
         opts.on('-p', '--password PASSWORD', 'Password')                 { |v| options[:password] = v }
@@ -69,11 +69,16 @@ module EvilCTF
 
       parser.parse!(argv)
 
-      # If --ipv6 is provided, add mapping to /etc/hosts and exit
-      if options[:ipv6] && options[:ipv6_hostname]
-        require_relative 'session'
-        EvilCTF::Session.add_ipv6_to_hosts(options[:ipv6], options[:ipv6_hostname])
-        puts "[+] Added IPv6 mapping: #{options[:ipv6]} #{options[:ipv6_hostname]} to /etc/hosts (if not present)"
+      # If --ipv6 is provided, add mapping to /etc/hosts and exit. Note that
+      # OptionParser's Array type consumes a single comma-separated argument,
+      # so the documented form is `--ipv6 IP,HOSTNAME`.
+      if options[:ipv6]
+        if options[:ipv6_hostname] && !options[:ipv6_hostname].to_s.empty?
+          EvilCTF::Session.add_ipv6_to_hosts(options[:ipv6], options[:ipv6_hostname])
+        else
+          warn '[*] --ipv6 requires a hostname (comma-separated: --ipv6 IP,HOSTNAME)'
+          return 1
+        end
         exit 0
       end
 
@@ -95,6 +100,41 @@ module EvilCTF
       # Normalize username/user after merging profile and CLI
       options[:user] = options[:username] if options[:username]
       options[:username] = options[:user] if options[:user] && !options[:username]
+
+      # Tool listing mode: print the catalog and exit without a session.
+      if options[:list_tools]
+        EvilCTF::Tools.list_available_tools
+        return 0
+      end
+
+      # Multi-host mode: run a session per host from the hosts file.
+      if options[:hosts]
+        hosts = EvilCTF::Session.parse_hosts_file(options[:hosts])
+        if hosts.empty?
+          warn "[-] No valid hosts found in #{options[:hosts]}"
+          return 1
+        end
+        warn "[*] Found #{hosts.size} host(s) in #{options[:hosts]}"
+        hosts.each_with_index do |host, idx|
+          warn "\n#{'=' * 60}"
+          warn "[*] Host #{idx + 1}/#{hosts.size}: #{host[:ip]}"
+          host_opts = options.dup
+          host_opts[:ip] = host[:ip]
+          host_opts[:user] = host[:user]
+          host_opts[:username] = host[:user]
+          host_opts[:password] = host[:password]
+          host_opts[:hash] = host[:hash]
+          host_opts.delete(:hosts)
+          begin
+            Session.run_session(host_opts)
+          rescue StandardError => e
+            warn "[!] Error with #{host[:ip]}: #{e.message}"
+          end
+          sleep(2) unless idx == hosts.size - 1
+        end
+        warn "\n[+] All sessions complete. Check ./loot/"
+        return 0
+      end
 
       if options[:ip].nil? || options[:user].nil?
         puts parser

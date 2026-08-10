@@ -14,7 +14,7 @@ module EvilCTF
           # Remove zone index if present (e.g., fd00::1%eth0)
           ipv6_addr = orig_ip.split('%')[0]
           host = "[#{ipv6_addr}]"
-          EvilCTF::Session.add_ipv6_to_hosts(ipv6_addr)
+          EvilCTF::Session.add_ipv6_to_hosts(ipv6_addr, 'ipv6addr')
         else
           host = EvilCTF::Session.normalize_host(orig_ip)
         end
