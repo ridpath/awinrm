@@ -30,9 +30,10 @@ module EvilCTF
           # Build the smbclient auth string
           auth_user = domain ? "#{domain}\\#{user}" : user
           auth = if hash
-                   # NTLM hash: smbclient expects LM:NT format
-                   hash.include?(':') ? hash : "aad3b435b51404eeaad3b435b51404ee:#{hash}"
-                   "--pw-nt-hash -U '#{auth_user}'"
+                   # NTLM hash: smbclient expects the NT hash as the password
+                   # with --pw-nt-hash. Normalize LM:NT to just the NT half.
+                   nt_hash = hash.include?(':') ? hash.split(':').last : hash
+                   "--pw-nt-hash -U '#{auth_user}%#{nt_hash}'"
                  else
                    "-U '#{auth_user}%#{password}'"
                  end

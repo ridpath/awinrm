@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'fileutils'
 
 module EvilCTF
   module Config
@@ -58,6 +59,19 @@ module EvilCTF
 
         names.concat(load_profiles(root_path: root).keys.map(&:to_s))
         names.uniq.sort
+      end
+
+      def save_profile(name:, data:, root_path: nil)
+        return nil if name.to_s.strip.empty?
+
+        root = self.root_path(root_path)
+        dir = File.join(root, 'profiles')
+        FileUtils.mkdir_p(dir)
+        profile_file = File.join(dir, "#{name}.yaml")
+        File.write(profile_file, data.to_yaml)
+        profile_file
+      rescue StandardError
+        nil
       end
 
       def symbolize_hash(hash)

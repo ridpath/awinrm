@@ -3,6 +3,7 @@
 require_relative 'execution'
 require_relative 'sanitizer'
 require_relative 'engine_audit'
+require_relative 'app_state'
 
 module EvilCTF
   class AsyncWorker
@@ -82,24 +83,40 @@ module EvilCTF
     end
 
     def process(job:)
+      output = nil
+
       if job.block
         block_result = job.block.call
+        output = block_result if block_result.is_a?(String)
         job.on_complete&.call(block_result)
-        return
+      else
+        result = EvilCTF::Execution.run(job.shell, job.command, timeout: 300)
+        output = result&.output.to_s
+        unless result&.ok
+          EvilCTF::EngineAudit.error(
+            message: "async job failed: #{job.name} exit=#{result&.exitcode}",
+            source: 'async_worker'
+          )
+        end
+        job.on_complete&.call(result)
       end
 
-      result = EvilCTF::Execution.run(job.shell, job.command, timeout: 300)
-      output = result&.output.to_s
-      job.logger&.info("[AsyncWorker] #{job.name}: #{output}") unless output.empty?
-      unless result&.ok
-        EvilCTF::EngineAudit.error(
-          message: "async job failed: #{job.name} exit=#{result&.exitcode}",
-          source: 'async_worker'
-        )
-      end
-      job.on_complete&.call(result)
+      publish(job: job, output: output) if output && !output.empty?
     rescue StandardError => e
       EvilCTF::EngineAudit.error(message: "async job exception: #{job.name}", error: e, source: 'async_worker')
+      publish(job: job, output: "[!] async job '#{job.name}' failed: #{e.message}")
+    end
+
+    def publish(job:, output:)
+      return if output.nil? || output.empty?
+
+      job.logger&.info("[AsyncWorker] #{job.name}: #{output}") if job.logger.respond_to?(:info)
+
+      app = EvilCTF::AppState.instance
+      app.append_result("[AsyncWorker] #{job.name}:")
+      app.append_stream(output)
+    rescue StandardError => e
+      EvilCTF::EngineAudit.error(message: 'async worker publish failed', error: e, source: 'async_worker')
     end
   end
 end
