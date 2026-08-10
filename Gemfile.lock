@@ -62,7 +62,7 @@ GEM
     ruby2_keywords (0.0.5)
     rubyntlm (0.6.5)
       base64
-    rubyzip (3.2.2)
+    rubyzip (2.4.1)
     socksify (1.8.1)
     strings (0.2.1)
       strings-ansi (~> 0.2)
@@ -97,6 +97,11 @@ GEM
       nori (~> 2.0, >= 2.7.1)
       rexml (~> 3.0)
       rubyntlm (~> 0.6.0, >= 0.6.3)
+    winrm-fs (1.3.5)
+      erubi (~> 1.8)
+      logging (>= 1.6.1, < 3.0)
+      rubyzip (~> 2.0)
+      winrm (~> 2.0)
     wisper (2.0.1)
 
 PLATFORMS
@@ -124,13 +129,14 @@ DEPENDENCIES
   ostruct (>= 0.6.0)
   readline (>= 0.0.4)
   rspec (>= 3.12)
-  rubyzip (>= 3.0)
+  rubyzip (>= 2.0, < 3)
   socksify (>= 1.8)
   syslog (>= 0.1.2)
   tty-prompt
   tty-screen
   tty-table
   winrm (>= 2.3.9)
+  winrm-fs (>= 1.3.5)
 
 CHECKSUMS
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
@@ -174,7 +180,7 @@ CHECKSUMS
   rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
   ruby2_keywords (0.0.5) sha256=ffd13740c573b7301cf7a2e61fc857b2a8e3d3aff32545d6f8300d8bae10e3ef
   rubyntlm (0.6.5) sha256=47013402b99ae29ee93f930af51edaec8c6008556f4be25705a422b4430314f5
-  rubyzip (3.2.2) sha256=c0ed99385f0625415c8f05bcae33fe649ed2952894a95ff8b08f26ca57ea5b3c
+  rubyzip (2.4.1) sha256=8577c88edc1fde8935eb91064c5cb1aef9ad5494b940cf19c775ee833e075615
   socksify (1.8.1) sha256=cf2a01720cc32490cc657b3233730620a03b92e98281726872ebebedfea9a856
   strings (0.2.1) sha256=933293b3c95cf85b81eb44b3cf673e3087661ba739bbadfeadf442083158d6fb
   strings-ansi (0.2.0) sha256=90262d760ea4a94cc2ae8d58205277a343409c288cbe7c29416b1826bd511c88
@@ -188,6 +194,7 @@ CHECKSUMS
   unicode-display_width (2.6.0) sha256=12279874bba6d5e4d2728cef814b19197dbb10d7a7837a869bab65da943b7f5a
   unicode_utils (1.4.0) sha256=b922d0cf2313b6b7136ada6645ce7154ffc86418ca07d53b058efe9eb72f2a40
   winrm (2.3.9) sha256=ef6b767c5772d06e186300b506ea5e65afb849904a551f8482a5cfc2a1be5d06
+  winrm-fs (1.3.5) sha256=0d2cdd9e1fb6fc8d01f56a32dce41d98ae6eefb481937ed0e058faa0cd0c693d
   wisper (2.0.1) sha256=ce17bc5c3a166f241a2e6613848b025c8146fce2defba505920c1d1f3f88fae6
 
 BUNDLED WITH

@@ -10,10 +10,11 @@ gem 'logging', '>= 2.4'
 gem 'nori', '>= 2.7'
 gem 'ostruct', '>= 0.6.0'
 gem 'readline', '>= 0.0.4'
-gem 'rubyzip', '>= 3.0'
+gem 'rubyzip', '>= 2.0', '< 3' # winrm-fs pins ~> 2.0; our Zip::File usage is 2.x-compatible
 gem 'socksify', '>= 1.8'
 gem 'syslog', '>= 0.1.2'
 gem 'winrm', '>= 2.3.9'
+gem 'winrm-fs', '>= 1.3.5'
 
 # Test/dev
 group :test do
