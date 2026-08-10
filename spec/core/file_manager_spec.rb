@@ -19,13 +19,10 @@ RSpec.describe EvilCTF::ShellAdapter::WinRMShellAdapter::InternalFileManager do
 
         allow(shell_adapter).to receive(:run) do |cmd|
           case cmd
-          when /WriteAllBytes/
-            OpenStruct.new(output: 'OK')
-          when /FromBase64String/
-            OpenStruct.new(output: 'OK')
           when /Get-FileHash/
             OpenStruct.new(output: Digest::SHA256.file(local_path).hexdigest)
           else
+            # WriteAllBytes / FromBase64String / anything else
             OpenStruct.new(output: 'OK')
           end
         end
@@ -42,13 +39,10 @@ RSpec.describe EvilCTF::ShellAdapter::WinRMShellAdapter::InternalFileManager do
 
         allow(shell_adapter).to receive(:run) do |cmd|
           case cmd
-          when /WriteAllBytes/
-            OpenStruct.new(output: 'OK')
-          when /FromBase64String/
-            OpenStruct.new(output: 'OK')
           when /Get-FileHash/
             OpenStruct.new(output: 'deadbeef' * 8)
           else
+            # WriteAllBytes / FromBase64String / anything else
             OpenStruct.new(output: 'OK')
           end
         end

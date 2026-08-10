@@ -35,7 +35,7 @@ RSpec.describe EvilCTF::Uploader::Client do
 
   it 'uploads via chunked path and returns true' do
     allow(File).to receive(:exist?).and_return(true)
-    f = StringIO.new("x" * 100)
+    f = StringIO.new('x' * 100)
     allow(File).to receive(:open).and_yield(f)
     bytes_written = 0
     allow(dummy_shell).to receive(:run) do |cmd|
@@ -107,8 +107,10 @@ RSpec.describe EvilCTF::Uploader::Client do
 
     before do
       allow(FileUtils).to receive(:mkdir_p)
-      allow(FileUtils).to receive(:mv).and_wrap_original do |original, *args|
-        FileUtils.cp(args[0], args[1]) rescue nil
+      allow(FileUtils).to receive(:mv).and_wrap_original do |_original, *args|
+        FileUtils.cp(args[0], args[1])
+      rescue StandardError
+        nil
       end
     end
 
@@ -286,7 +288,7 @@ RSpec.describe EvilCTF::Uploader::Client do
     it 'proceeds when PowerShell version is returned' do
       allow(File).to receive(:exist?).and_return(true)
       allow(File).to receive(:size).and_return(100)
-      f = StringIO.new("x" * 100)
+      f = StringIO.new('x' * 100)
       allow(File).to receive(:open).and_yield(f)
       allow(dummy_shell).to receive(:run) do |cmd|
         s = cmd.to_s
