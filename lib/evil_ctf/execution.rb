@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'ostruct'
-require 'concurrent'
 require 'securerandom'
 require_relative 'shell_adapter'
 require_relative 'sanitizer'
@@ -19,13 +18,6 @@ module EvilCTF
       end
       worker.report_on_exception = false if worker.respond_to?(:report_on_exception=)
 
-      # TimerTask is used as required for timeout lifecycle management.
-      timer = Concurrent::TimerTask.new(execution_interval: timeout.to_f, run_now: false) do
-        # no-op: join timeout controls termination deterministically
-      end
-
-      timer.execute
-
       finished = worker.join(timeout.to_f)
       return :timed_out if finished.nil? || worker.alive?
 
@@ -37,7 +29,6 @@ module EvilCTF
       EvilCTF::EngineAudit.error(message: 'run_with_timer failed', error: e, source: 'execution')
       raise
     ensure
-      timer&.shutdown
       worker&.kill if worker&.alive?
     end
 
@@ -136,7 +127,7 @@ module EvilCTF
         # fallback: if we couldn't start a job, run directly
         res = run(shell_or_adapter, sanitized, timeout: timeout)
         return OpenStruct.new(
-          ok: (res.respond_to?(:ok) ? !res.ok.nil? : false),
+          ok: (res.respond_to?(:ok) ? !!res.ok : false),
           exitcode: (res.respond_to?(:exitcode) ? res.exitcode : nil),
           output: (res&.output ? res.output.to_s : '')
         )
@@ -146,10 +137,25 @@ module EvilCTF
       last_content = ''
       begin
         while elapsed < timeout
-          # read remote tmp file content (may be empty)
-          read_ps = "try { if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' } } catch { '' }"
-          read_res = run(shell_or_adapter, read_ps, timeout: 20)
-          content = read_res&.output ? read_res.output.to_s : ''
+          # Poll the remote log file AND job state in a single round-trip
+          # instead of two, halving the overhead of long-running streams.
+          poll_ps = <<~PS
+            try {
+              $content = if (Test-Path '#{remote_tmp}') { (Get-Content -Path '#{remote_tmp}' -Raw) } else { '' }
+              $state = (Get-Job -Id #{job_id} -ErrorAction SilentlyContinue).State
+              "__STATE__$state"
+              $content
+            } catch {
+              "__STATE__Unknown"
+            }
+          PS
+          poll_res = run(shell_or_adapter, poll_ps, timeout: 20)
+          poll_out = poll_res&.output ? poll_res.output.to_s : ''
+
+          state = poll_out.lines.find { |ln| ln.start_with?('__STATE__') }
+          state = state ? state.sub('__STATE__', '').strip : 'Unknown'
+          content = poll_out.lines.reject { |ln| ln.start_with?('__STATE__') }.join
+
           if content && content.length > last_content.length
             new_text = content[last_content.length..]
             emit_nonblocking(text: new_text) do |chunk|
@@ -158,10 +164,6 @@ module EvilCTF
             last_content = content
           end
 
-          # check job state
-          state_ps = "try { (Get-Job -Id #{job_id} -ErrorAction SilentlyContinue).State } catch { 'Unknown' }"
-          state_res = run(shell_or_adapter, state_ps, timeout: 20)
-          state = state_res&.output&.to_s&.strip
           break if state && state =~ /Completed|Failed|Stopped/i
 
           sleep poll_interval

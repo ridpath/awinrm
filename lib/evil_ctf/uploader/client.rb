@@ -16,7 +16,12 @@ module EvilCTF
   require 'colorize'
   module Uploader
     class Client
-      DEFAULT_CHUNK_SIZE = 64 * 1024
+      # 80KB keeps each base64 chunk (+PS wrapper, ~107KB) inside a single
+      # winrm envelope on 150KB-endpoint targets (max_fragment_blob_size
+      # ~111KB): one fragment = one round-trip. Sizes above ~84KB (e.g. 96KB,
+      # ~128KB b64) get split into two fragments on 150KB endpoints, which is
+      # slower than the old 64KB default.
+      DEFAULT_CHUNK_SIZE = 80 * 1024
 
       def initialize(shell_or_adapter, logger = nil)
         @shell_adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
@@ -41,8 +46,9 @@ module EvilCTF
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
 
-        # Try SMB push first if we have the necessary info and port 445 is likely open
-        if try_smb && smb_ip && (smb_user || smb_hash)
+        # Try SMB push first if we have the necessary info and port 445 is likely
+        # open — but never for encrypted uploads (the SMB path cannot apply XOR).
+        if try_smb && !xor_key && !encrypt && smb_ip && (smb_user || smb_hash)
           smb_result = EvilCTF::Uploader::SmbUpload.upload(
             local_path: local_path,
             remote_path: remote_path,
@@ -166,9 +172,11 @@ module EvilCTF
         rescue StandardError => _e
         end
 
-        # Use adapter file manager if available
+        # Use adapter file manager if available — but skip it when encryption
+        # is requested, since the file manager path cannot apply XOR and would
+        # silently skip obfuscation. Falls through to the chunked path below.
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
-        if fm.respond_to?(:upload)
+        if fm.respond_to?(:upload) && !xor_key && !encrypt
           begin
             @logger&.info("[Uploader] Using file manager upload via adapter for #{local_path} -> #{tmp_remote}")
             fm.upload(local_path: local_path, remote_path: tmp_remote)
@@ -299,17 +307,26 @@ module EvilCTF
                                                         sent: bytes_sent })
               rescue StandardError
               end
-              ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
-              len_res = @shell_adapter.run(ps_len_check)
-              remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
-              if remote_len < bytes_sent
-                @logger&.warn("[Uploader] Remote tmp length (#{remote_len}) less than expected (#{bytes_sent}), retrying chunk #{idx}")
-                res_retry = @shell_adapter.run(ps)
+
+              # Verify remote length periodically (every 8th chunk) instead of
+              # after every chunk: the write itself already returns a CHUNK n
+              # confirmation, so per-chunk length probes double WinRM round-trips
+              # without adding much safety. The final SHA256 verify catches any
+              # silent truncation at the end of the transfer.
+              if (idx % 8).zero?
+                ps_len_check = "(Get-Item -Path '#{escaped_remote}' -ErrorAction SilentlyContinue).Length"
                 len_res = @shell_adapter.run(ps_len_check)
                 remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
                 if remote_len < bytes_sent
-                  @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting. Script: #{ps.strip}\nOutput: #{res_retry&.output}")
-                  raise ::EvilCTF::Errors::UploadError, "Chunk #{idx} failed after retry. Output: #{res_retry&.output}"
+                  @logger&.warn("[Uploader] Remote tmp length (#{remote_len}) less than expected (#{bytes_sent}), retrying chunk #{idx}")
+                  res_retry = @shell_adapter.run(ps)
+                  len_res = @shell_adapter.run(ps_len_check)
+                  remote_len = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
+                  if remote_len < bytes_sent
+                    @logger&.error("[Uploader] Chunk #{idx} still missing after retry; aborting. Script: #{ps.strip}\nOutput: #{res_retry&.output}")
+                    raise ::EvilCTF::Errors::UploadError,
+                          "Chunk #{idx} failed after retry. Output: #{res_retry&.output}"
+                  end
                 end
               end
 
@@ -449,9 +466,10 @@ module EvilCTF
         end
         remote_path = resolved_remote_path || requested_remote_path
 
-        # Prefer adapter file manager
+        # Prefer adapter file manager — but skip it when a xor_key is set so
+        # encrypted downloads are decrypted via the chunked path.
         fm = @shell_adapter.respond_to?(:file_manager) ? @shell_adapter.file_manager : nil
-        if fm
+        if fm && !xor_key
           begin
             @logger&.info("[Downloader] Using file manager to download #{remote_path} -> #{local_path}")
             tmp_local = "#{local_path}.winrmfs.tmp"

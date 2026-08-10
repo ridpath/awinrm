@@ -51,8 +51,32 @@ module EvilCTF
 
     # WinRM-specific adapter: can be constructed from a WinRM::Connection or a WinRM shell
     class WinRMShellAdapter < GenericAdapter
+      # Wraps the real winrm-fs FileManager (native PSRP transfer protocol, far
+      # faster than base64-through-PowerShell) behind the same keyword API that
+      # InternalFileManager exposes, so callers can use either interchangeably.
+      class GemFileManager
+        def initialize(connection)
+          require 'winrm-fs'
+          @fm = WinRM::FS::FileManager.new(connection)
+        end
+
+        def upload(local_path:, remote_path:, **)
+          @fm.upload(local_path, remote_path)
+        end
+
+        def download(remote_path:, local_path:, **)
+          @fm.download(remote_path, local_path)
+        end
+
+        def read(remote_path:, local_path:)
+          @fm.download(remote_path, local_path)
+        end
+      rescue LoadError
+        raise ::EvilCTF::Errors::ConnectionError, 'winrm-fs gem not installed'
+      end
+
       class InternalFileManager
-        DEFAULT_CHUNK_SIZE = 64 * 1024
+        DEFAULT_CHUNK_SIZE = 80 * 1024
 
         def initialize(shell_adapter:)
           @shell_adapter = shell_adapter
@@ -279,9 +303,27 @@ module EvilCTF
         { type: :winrm, connection: @conn }
       end
 
-      # Return an internal file manager implementation (WinRM::FS optional).
+      # Prefer the native winrm-fs FileManager when the gem is present (its PSRP
+      # transfer is dramatically faster than base64 chunking); fall back to the
+      # internal PowerShell chunker otherwise.
       def file_manager
         return nil unless @shell
+        return nil unless @conn
+
+        begin
+          require 'winrm-fs'
+        rescue LoadError
+          # fall through to the internal implementation below
+        end
+
+        if defined?(WinRM::FS::FileManager)
+          begin
+            return GemFileManager.new(@conn)
+          rescue StandardError
+            # winrm-fs failed to initialize (e.g. incompatible connection); fall
+            # through to the internal PowerShell chunker below.
+          end
+        end
 
         InternalFileManager.new(shell_adapter: self)
       rescue StandardError

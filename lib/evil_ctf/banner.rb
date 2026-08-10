@@ -64,6 +64,50 @@ module EvilCTF
       end
     end
 
+    # Run many short commands in a single PowerShell round-trip. Each command is
+    # executed as a top-level statement inside its own try/catch (so statement-
+    # style commands like `if/else` work), and its (possibly multi-line) output
+    # is bracketed with sentinel markers so results survive transport.
+    # Returns { label => output_string } for every command.
+    def self.batch_run(shell, commands)
+      return {} if commands.nil? || commands.empty?
+
+      ps = commands.map do |label, cmd|
+        <<~PS
+          try {
+            Write-Output "__START__#{label}"
+            #{cmd}
+            Write-Output "__END__#{label}"
+          } catch {
+            Write-Output "__ERROR__#{label}"
+          }
+        PS
+      end.join("\n")
+
+      res = EvilCTF::Execution.run(shell, ps, timeout: 90)
+      out = res&.output.to_s
+      results = {}
+      current = nil
+      out.each_line do |line|
+        s = line.strip
+        if s.start_with?('__START__')
+          current = s.sub('__START__', '')
+          results[current] = ''
+        elsif current && s == "__END__#{current}"
+          current = nil
+        elsif current && s == "__ERROR__#{current}"
+          results[current] = 'ERROR'
+          current = nil
+        elsif current
+          results[current] = "#{results[current]}#{s}\n"
+        end
+      end
+      results
+    rescue StandardError => e
+      puts "  [!] Batch probe failed: #{e.message}".yellow
+      {}
+    end
+
     # Show banner with optional color
     def self.show_banner(shell, options, mode: :minimal, no_color: false)
       # If the user requested the TUI, attempt to launch it and return.
@@ -98,10 +142,8 @@ module EvilCTF
         return
       end
 
-      # Colorized version
+      # Colorized version; any mode other than :expanded renders minimal.
       case mode
-      when :minimal
-        show_minimal_banner(shell, options)
       when :expanded
         show_expanded_banner(shell, options)
       else
@@ -308,16 +350,18 @@ module EvilCTF
       puts 'AWINRM CTF SESSION - EXPANDED MODE'.center(70).yellow
       puts '=' * 70
 
-      # Basic System Info
-      begin
-        hostname = shell.run('hostname').output.strip
-        os_version = shell.run('systeminfo | findstr /B /C:"OS Name" /C:"OS Version"').output.strip
-        arch = shell.run('$env:PROCESSOR_ARCHITECTURE').output.strip
-      rescue StandardError => e
-        hostname = 'Unknown'
-        os_version = 'Unknown'
-        arch = 'Unknown'
-      end
+      # Basic System Info (single batched round-trip)
+      sys_batch = batch_run(shell, {
+                              'hostname' => 'hostname',
+                              'os_version' => 'systeminfo | findstr /B /C:"OS Name" /C:"OS Version"',
+                              'arch' => '$env:PROCESSOR_ARCHITECTURE'
+                            })
+      hostname = sys_batch['hostname'].to_s.strip
+      os_version = sys_batch['os_version'].to_s.strip
+      arch = sys_batch['arch'].to_s.strip
+      hostname = 'Unknown' if hostname.empty? || hostname == 'ERROR' || hostname.include?('TIMED_OUT')
+      os_version = 'Unknown' if os_version.empty? || os_version == 'ERROR' || os_version.include?('TIMED_OUT')
+      arch = 'Unknown' if arch.empty? || arch == 'ERROR' || arch.include?('TIMED_OUT')
 
       puts "\n".cyan + 'System Information:'.cyan
       puts "  Hostname        : #{hostname}".white
@@ -344,13 +388,12 @@ module EvilCTF
         'Boot Time' => '(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString("yyyy-MM-dd HH:mm:ss")'
       }
 
-      core_info.each do |label, cmd|
-        output = shell.run(cmd).output.strip
+      core_results = batch_run(shell, core_info)
+      core_info.each_key do |label|
+        output = core_results[label].to_s.strip
         output = output.lines.take(2).join(' | ').strip if output.lines.count > 2
-        output = 'N/A' if output.empty?
+        output = 'N/A' if output.empty? || output == 'ERROR'
         puts "  #{label.ljust(30)} : #{output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(30)} : Error: #{e.message}".yellow
       end
 
       # Privilege & Token
@@ -362,13 +405,12 @@ module EvilCTF
         'Token Privileges Count' => '(whoami /priv | Measure-Object -Line).Lines - 1'
       }
 
-      privilege_cmds.each do |label, cmd|
-        output = shell.run(cmd).output.strip
+      priv_results = batch_run(shell, privilege_cmds)
+      privilege_cmds.each_key do |label|
+        output = priv_results[label].to_s.strip
         output = output.lines.first.strip if output.include?('Enabled') || output.include?('Disabled')
-        output = 'Not Found' if output.empty?
+        output = 'Not Found' if output.empty? || output == 'ERROR'
         puts "  #{label.ljust(30)} : #{output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(30)} : Error: #{e.message}".yellow
       end
 
       # Performance & Health
@@ -381,11 +423,10 @@ module EvilCTF
         'Disk Drives' => '(Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Root -ne $null} | ForEach-Object { "$($_.Name): $([math]::Round($_.Free / 1GB, 2))GB free" }) -join "; "'
       }
 
-      perf_cmds.each do |label, cmd|
-        output = shell.run(cmd).output.strip
-        puts "  #{label.ljust(25)} : #{output.empty? ? 'N/A' : output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(25)} : Error: #{e.message}".yellow
+      perf_results = batch_run(shell, perf_cmds)
+      perf_cmds.each_key do |label|
+        output = perf_results[label].to_s.strip
+        puts "  #{label.ljust(25)} : #{output.empty? || output == 'ERROR' ? 'N/A' : output}".white
       end
 
       # MSSQL Detection
@@ -428,10 +469,17 @@ module EvilCTF
         puts "  [ ] MSSQL Detection Error: #{e.message}".yellow
       end
 
-      # Patch Info
+      # Patch Info (batched: list, last patch, and count in one round-trip)
       puts "\n".cyan + 'PATCH & VULNERABILITY STATUS'.center(70, '-').cyan
       begin
-        all_hotfixes = shell.run('Get-HotFix | Select-Object HotFixID').output
+        patch_results = batch_run(shell, {
+                                    'all' => 'Get-HotFix | Select-Object HotFixID',
+                                    'last' => 'Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1 | Format-Table HotFixID,InstalledOn -AutoSize',
+                                    'count' => '(Get-HotFix | Measure-Object).Count'
+                                  })
+        all_hotfixes = patch_results['all'].to_s
+        patch_count = patch_results['count'].to_s.strip
+        last_patch = patch_results['last'].to_s.strip
 
         critical_patches = {
           'MS17-010 (EternalBlue)' => %w[KB4012212 KB4012215 KB4012216 KB4012217 KB4012218 KB4012219
@@ -446,9 +494,6 @@ module EvilCTF
           symbol = patched ? '[+]'.green : '[!]'.red
           puts "  #{symbol} #{desc} - #{status}".white
         end
-
-        last_patch = shell.run('Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1 | Format-Table HotFixID,InstalledOn -AutoSize').output.strip
-        patch_count = shell.run('(Get-HotFix | Measure-Object).Count').output.strip
 
         puts "\n  Patch Summary:".white
         puts "    Total Hotfixes: #{patch_count}".white
@@ -470,13 +515,14 @@ module EvilCTF
         'LSASS Protection' => '(Get-Process -Name lsass -ErrorAction SilentlyContinue).Protection'
       }
 
-      security_cmds.each do |label, cmd|
-        output = shell.run(cmd).output.strip
-        output = 'Not Enabled' if output.empty? || output == 'N/A'
-        output = 'Not Available' if label == 'BitLocker Status' && (output.include?('not recognized') || output.empty?)
+      security_results = batch_run(shell, security_cmds)
+      security_cmds.each_key do |label|
+        output = security_results[label].to_s.strip
+        output = 'Not Enabled' if output.empty? || output == 'N/A' || output == 'ERROR'
+        if label == 'BitLocker Status' && (output.include?('not recognized') || output.empty? || output == 'ERROR')
+          output = 'Not Available'
+        end
         puts "  #{label.ljust(30)} : #{output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(30)} : Error: #{e.message}".yellow
       end
 
       # Application Detection
@@ -488,12 +534,11 @@ module EvilCTF
         'AV/EDR Processes' => '(Get-Process | Where-Object {$_.ProcessName -match "csfalcon|crowd|sentinel|defender|sophos|mcafee|symantec|carbon"} | Select-Object -ExpandProperty ProcessName) -join ", "'
       }
 
-      app_cmds.each do |label, cmd|
-        output = shell.run(cmd).output.strip
-        output = 'Not Detected' if output.empty? || output == 'N/A'
+      app_results = batch_run(shell, app_cmds)
+      app_cmds.each_key do |label|
+        output = app_results[label].to_s.strip
+        output = 'Not Detected' if output.empty? || output == 'N/A' || output == 'ERROR'
         puts "  #{label.ljust(30)} : #{output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(30)} : Error: #{e.message}".yellow
       end
 
       # Network Info
@@ -506,11 +551,10 @@ module EvilCTF
         'Local IP Addresses' => '(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -ne "127.0.0.1"} | Select-Object -ExpandProperty IPAddress) -join ", "'
       }
 
-      network_cmds.each do |label, cmd|
-        output = shell.run(cmd).output.strip
-        puts "  #{label.ljust(30)} : #{output.empty? ? 'N/A' : output}".white
-      rescue StandardError => e
-        puts "  #{label.ljust(30)} : Error: #{e.message}".yellow
+      network_results = batch_run(shell, network_cmds)
+      network_cmds.each_key do |label|
+        output = network_results[label].to_s.strip
+        puts "  #{label.ljust(30)} : #{output.empty? || output == 'ERROR' ? 'N/A' : output}".white
       end
 
       # Risk Assessment
@@ -578,8 +622,10 @@ module EvilCTF
           'DefaultAccount' => 'Windows 10 default'
         }
 
+        account_cmds = default_accounts.keys.to_h { |acc| [acc, "net user #{acc} 2>$null"] }
+        account_results = batch_run(shell, account_cmds)
         default_accounts.each do |acc, desc|
-          status = shell.run("net user #{acc} 2>$null").output.strip
+          status = account_results[acc].to_s
           if status.include?('Account active') && status.include?('Yes')
             puts "  [!] #{acc} (#{desc}): ENABLED".red
           else
@@ -617,18 +663,18 @@ module EvilCTF
       # Connection Info
       puts "\n".cyan + 'CONNECTION INFORMATION'.center(70, '-').cyan
       connection_info = {
-        'Transport' => "'#{options[:ssl] ? 'HTTPS' : 'HTTP'}'",
-        'Port' => "'#{options[:port]}'",
-        'SSL' => "'#{options[:ssl] ? 'Yes' : 'No'}'",
-        'Auth Type' => "'#{options[:hash] ? 'NTLM Hash' : 'Password'}'",
-        'Endpoint' => "'#{options[:endpoint] || 'N/A'}'",
-        'Stealth Mode' => "'#{options[:stealth] ? 'Yes' : 'No'}'",
-        'Auto Evasion' => "'#{options[:auto_evasion] ? 'Yes' : 'No'}'",
-        'Loot Items' => "'#{Dir.glob('loot/**/*').select { |f| File.file?(f) }.count} files'"
+        'Transport' => options[:ssl] ? 'HTTPS' : 'HTTP',
+        'Port' => options[:port].to_s,
+        'SSL' => options[:ssl] ? 'Yes' : 'No',
+        'Auth Type' => options[:hash] ? 'NTLM Hash' : 'Password',
+        'Endpoint' => options[:endpoint] || 'N/A',
+        'Stealth Mode' => options[:stealth] ? 'Yes' : 'No',
+        'Auto Evasion' => options[:auto_evasion] ? 'Yes' : 'No',
+        'Loot Items' => "#{Dir.glob('loot/**/*').select { |f| File.file?(f) }.count} files"
       }
 
       connection_info.each do |label, value|
-        puts "  #{label.ljust(30)} : #{eval(value)}".white
+        puts "  #{label.ljust(30)} : #{value}".white
       end
 
       # Optimized Flag Scan
@@ -673,7 +719,6 @@ module EvilCTF
             } catch { }
           }
 
-          $found_flags.GetEnumerator() | ForEach-Object {
           $found_flags.GetEnumerator() | ForEach-Object {
             Write-Output "FLAGFOUND|||$($_.Key)|||$($_.Value)"
           }
