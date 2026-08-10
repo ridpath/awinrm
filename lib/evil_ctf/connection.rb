@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require_relative '../compat/silence_warnings'
-require 'winrm' rescue nil
-
+begin
+  require 'winrm'
+rescue StandardError
+  nil
+end
 
 module EvilCTF
   module Connection
@@ -10,17 +13,14 @@ module EvilCTF
     # Ruby 4.0 migration note:
     # Prefer keyword arguments and keep a temporary Hash shim for legacy callers.
     def self.build_full(opts = nil, **kwargs)
-      if opts && !opts.is_a?(Hash)
-        raise ArgumentError, 'build_full expects keyword args (or a legacy Hash)'
-      end
+      raise ArgumentError, 'build_full expects keyword args (or a legacy Hash)' if opts && !opts.is_a?(Hash)
 
-      if opts
-        warn '[DEPRECATION] build_full(Hash) is deprecated; use keyword arguments instead.'
-      end
+      warn '[DEPRECATION] build_full(Hash) is deprecated; use keyword arguments instead.' if opts
 
       params = (opts || {}).merge(kwargs)
 
       return nil unless defined?(WinRM::Connection)
+
       endpoint = params[:endpoint] || params[:url]
       user = params[:user]
       pass = params[:password]
@@ -43,42 +43,42 @@ module EvilCTF
         no_ssl_peer_verification: !!params[:ssl_no_verify],
         debug: !!debug
       }
-      # Inject custom User-Agent if provided
-      if params[:user_agent]
-        options[:http_client] = WinRM::HTTP::HttpTransport.new(endpoint, {})
-        options[:http_client].instance_variable_get(:@httpcli).default_header['User-Agent'] = params[:user_agent]
-      end
+      # Apply a custom User-Agent if provided. winrm honors this as a
+      # ConnectionOpts key and propagates it to the transport's default header;
+      # building a standalone HttpTransport here would be discarded by
+      # WinRM::Connection, so we pass it straight through as an override.
+      options[:user_agent] = params[:user_agent] if params[:user_agent]
 
       begin
         conn = if kerberos
-          WinRM::Connection.new(
-            endpoint: endpoint,
-            user: user,
-            password: '',
-            transport: :kerberos,
-            realm: realm,
-            keytab: keytab,
-            **options
-          )
-        elsif hash
-          WinRM::Connection.new(
-            endpoint: endpoint,
-            user: user,
-            password: '',
-            transport: :negotiate,
-            **options
-          )
-        else
-          WinRM::Connection.new(
-            endpoint: endpoint,
-            user: user,
-            password: pass,
-            transport: transport || :negotiate,
-            **options
-          )
-        end
+                 WinRM::Connection.new(
+                   endpoint: endpoint,
+                   user: user,
+                   password: '',
+                   transport: :kerberos,
+                   realm: realm,
+                   keytab: keytab,
+                   **options
+                 )
+               elsif hash
+                 WinRM::Connection.new(
+                   endpoint: endpoint,
+                   user: user,
+                   password: '',
+                   transport: :negotiate,
+                   **options
+                 )
+               else
+                 WinRM::Connection.new(
+                   endpoint: endpoint,
+                   user: user,
+                   password: pass,
+                   transport: transport || :negotiate,
+                   **options
+                 )
+               end
         return conn
-      rescue => e
+      rescue StandardError => e
         # The WinRM gem defines several specific exception classes across
         # versions; to avoid uninitialized constant errors on older/newer
         # versions and Ruby 3 compatibility issues, catch all errors here
@@ -99,13 +99,13 @@ module EvilCTF
       def run(cmd)
         res = @shell.run(cmd)
         ShellResult.new(res.output.to_s, res.exitcode || 0)
-      rescue => e
+      rescue StandardError => e
         ShellResult.new("ERROR: #{e.message}", 255)
       end
 
       def close
         @shell.close if @shell.respond_to?(:close)
-      rescue
+      rescue StandardError
         nil
       end
     end
@@ -115,16 +115,16 @@ module EvilCTF
   class ConnectionValidator
     def self.validate(conn, timeout: 5)
       shell = nil
-      result = nil
+      nil
       validation_result = nil
 
       begin
         shell = conn.shell(:powershell)
-        result = shell.run("hostname", timeout: timeout)
+        result = shell.run('hostname', timeout: timeout)
         hostname = result.output.to_s.strip
 
         validation_result = { ok: true, hostname: hostname }
-      rescue => e
+      rescue StandardError => e
         error_label = e.class.name.sub('WinRM::', '')
         validation_result = { ok: false, hostname: nil, error: "#{error_label}: #{e.message}" }
       ensure

@@ -88,6 +88,38 @@ RSpec.describe EvilCTF::CommandDispatcher do
       expect(result[:output]).to include('Command manager unavailable')
     end
 
+    it 'propagates ok: false from a handler hash (regression: !! vs nil?)' do
+      d = described_class.new
+      d.register('failing') { |_, _, _| { ok: false, error: 'nope' } }
+      result = d.dispatch(
+        name: 'failing', args: nil,
+        shell: shell, session_options: session_opts
+      )
+      expect(result[:ok]).to eq(false)
+      expect(result[:error]).to eq('nope')
+    end
+
+    it 'propagates handled: false from a handler hash (regression: tautology)' do
+      d = described_class.new
+      d.register('passthrough') { |_, _, _| { ok: false, handled: false } }
+      result = d.dispatch(
+        name: 'passthrough', args: nil,
+        shell: shell, session_options: session_opts
+      )
+      expect(result[:handled]).to eq(false)
+    end
+
+    it 'defaults handled to true when handler omits it' do
+      d = described_class.new
+      d.register('implicit') { |_, _, _| { ok: true, output: 'done' } }
+      result = d.dispatch(
+        name: 'implicit', args: nil,
+        shell: shell, session_options: session_opts
+      )
+      expect(result[:handled]).to eq(true)
+      expect(result[:ok]).to eq(true)
+    end
+
     it 'handles dispatch errors and logs them' do
       d = described_class.new
       d.register('crash') { |_, _, _| raise 'kaboom' }
@@ -204,8 +236,8 @@ RSpec.describe EvilCTF::CommandDispatcher do
       )
     end
 
-    it 'fileops calls file_operations_menu' do
-      expect(EvilCTF::Uploader).to receive(:file_operations_menu).with(shell)
+    it 'fileops calls file_operations_menu with session options' do
+      expect(EvilCTF::Uploader).to receive(:file_operations_menu).with(shell, session_opts)
       dispatcher.dispatch(
         name: 'fileops', args: nil,
         shell: shell, session_options: session_opts

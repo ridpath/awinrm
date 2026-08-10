@@ -55,6 +55,13 @@ Naming/AccessorMethodName:
 Naming/VariableNumber:
   Enabled: false
 
+Style/DoubleNegation:
+  Enabled: false                    # autocorrect (!x.nil?) is semantically
+                                  # different from !!x when x is `false`;
+                                  # !!x used deliberately for truthiness.
+                                  # NOTE: `--only Style/DoubleNegation`
+                                  # force-re-enables this cop (10 `!!` sites)
+
 # ── Security — keep this one ────────────────────────────────────
 Security/Open:
   Enabled: true
