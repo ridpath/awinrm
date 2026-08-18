@@ -387,7 +387,8 @@ module EvilCTF
 
         remote_path = EvilCTF::Staging.tool_path(File.basename(path))
         upload = EvilCTF::Uploader.upload_file(local_path: path, remote_path: remote_path, shell: shell,
-                                               xor_key: session_options[:xor_key])
+                                               xor_key: session_options[:xor_key],
+                                               resume: !(session_options[:fresh] || session_options[:no_resume]))
         ok = upload.is_a?(Hash) ? upload[:ok] : upload
         next "[!] Upload failed for #{path}" unless ok
 
@@ -411,7 +412,8 @@ module EvilCTF
 
         remote_path = EvilCTF::Staging.tool_path(File.basename(local_path))
         upload = EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: remote_path, shell: shell,
-                                               xor_key: session_options[:xor_key])
+                                               xor_key: session_options[:xor_key],
+                                               resume: !(session_options[:fresh] || session_options[:no_resume]))
         ok = upload.is_a?(Hash) ? upload[:ok] : upload
         next "[!] Upload failed for #{local_path}" unless ok
 

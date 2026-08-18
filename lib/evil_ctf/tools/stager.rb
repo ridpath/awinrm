@@ -72,7 +72,8 @@ module EvilCTF
           puts "[*] Staging ZIP file #{adjusted_tool[:filename]} to #{zip_remote_path}"
 
           success = upload_ok?(EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: zip_remote_path,
-                                                             shell: shell, xor_key: options[:xor_key]))
+                                                             shell: shell, xor_key: options[:xor_key],
+                                                             resume: !(options[:fresh] || options[:no_resume])))
           return false unless success
 
           extract_root = tool[:recommended_remote].to_s.rpartition('\\').first
@@ -122,7 +123,8 @@ module EvilCTF
         remote_path = randomized_remote_path(remote_path) if options[:random_names]
         remote_path = ads_stream_path(remote_path) if options[:stealth]
         deployed = upload_ok?(EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: remote_path,
-                                                            shell: shell, xor_key: options[:xor_key]))
+                                                            shell: shell, xor_key: options[:xor_key],
+                                                            resume: !(options[:fresh] || options[:no_resume])))
         # Return the deployed path (truthy) so callers can execute a
         # randomized or ADS-stream filename; boolean callers rely on truthiness.
         deployed ? remote_path : false

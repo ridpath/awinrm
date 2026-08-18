@@ -17,6 +17,7 @@ module EvilCTF
         random_names: false, auto_evasion: false, beacon: false,
         webhook: nil, logfile: nil, proxy: nil, profile: nil,
         list_tools: false, enum: nil, fresh: false, hosts: nil,
+        no_resume: false,
         kerberos: false, realm: nil, keytab: nil,
         banner_mode: :minimal, debug: false,
         ipv6: nil, ipv6_hostname: nil,
@@ -55,6 +56,7 @@ module EvilCTF
         opts.on('--list-tools', 'List available tools and exit')         { options[:list_tools] = true }
         opts.on('--enum TYPE', 'Run enumeration (basic, deep, etc.)')    { |v| options[:enum] = v }
         opts.on('--fresh', 'Bypass enum cache and force re-staging of tools') { options[:fresh] = true }
+        opts.on('--no-resume', 'Do not resume interrupted uploads (force re-upload from zero)') { options[:no_resume] = true }
         opts.on('-k', '--kerberos', 'Use Kerberos')                      { options[:kerberos] = true }
         opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
         opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }

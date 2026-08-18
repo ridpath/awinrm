@@ -21,6 +21,7 @@ module EvilCTF
       require 'readline'
       client = Client.new(shell)
       xor_key = options[:xor_key]
+      resume = !(options[:fresh] || options[:no_resume])
       require 'colorize'
       puts "\n#{'File Operations Menu:'.colorize(:cyan)}\n#{'---------------------'.colorize(:light_black)}"
       puts '[!] To upload into a directory, end the remote destination path with a backslash (e.g., C:\\Users\\jabbatheduck\\)'.colorize(:yellow)
@@ -105,7 +106,7 @@ module EvilCTF
                      remote_dir
                    end
           begin
-            ok = client.upload_file(local_path: local, remote_path: remote, xor_key: xor_key)
+            ok = client.upload_file(local_path: local, remote_path: remote, xor_key: xor_key, resume: resume)
             puts(ok ? '[+] Upload successful'.colorize(:green) : '[!] Upload failed'.colorize(:red))
           rescue StandardError => e
             puts "[!] Upload error: #{e.message}".colorize(:red)
@@ -151,7 +152,7 @@ module EvilCTF
               end
             end
             puts "[*] Created ZIP: #{zip_path}".colorize(:cyan)
-            ok = client.upload_file(local_path: zip_path, remote_path: remote, xor_key: xor_key)
+            ok = client.upload_file(local_path: zip_path, remote_path: remote, xor_key: xor_key, resume: resume)
             puts(ok ? '[+] ZIP upload successful'.colorize(:green) : '[!] ZIP upload failed'.colorize(:red))
           rescue StandardError => e
             puts "[!] ZIP/upload error: #{e.message}".colorize(:red)

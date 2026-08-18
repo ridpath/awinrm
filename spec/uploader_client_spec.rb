@@ -7,6 +7,14 @@ require_relative '../lib/evil_ctf/uploader/client'
 require_relative '../lib/evil_ctf/errors'
 
 RSpec.describe EvilCTF::Uploader::Client do
+  # Real local file (100 bytes) for specs that let the client actually
+  # stat/read it (File.size / File.binread on a fake path raise ENOENT).
+  let(:local_file) do
+    path = File.join(Dir.mktmpdir('awinrm-uploader-test'), 'a.bin')
+    File.binwrite(path, 'x' * 100)
+    path
+  end
+
   let(:dummy_shell) do
     Class.new do
       def run(_)
@@ -54,7 +62,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       end
     end
     begin
-      client.upload_file('a', 'C:/tmp/y')
+      client.upload_file(local_file, 'C:/tmp/y')
     rescue EvilCTF::Errors::UploadError
       # acceptable in environments where the dummy shell cannot emulate full behavior
     end
@@ -85,7 +93,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       end
 
       begin
-        result = client.upload_file('a', 'C:/tmp/y', verify: true)
+        result = client.upload_file(local_file, 'C:/tmp/y', verify: true)
         expect(result[:ok]).to eq(false)
         expect(result[:error]).to include('Hash mismatch')
         expect(result[:local_hash]).to eq('abc123')
@@ -192,7 +200,12 @@ RSpec.describe EvilCTF::Uploader::Client do
       f = StringIO.new('test data' * 10)
       allow(File).to receive(:open).and_yield(f)
 
+      # Expectation doubles as the stub; return the real XOR bytes so the
+      # expected-remote-hash computation (sha256 of transformed bytes) works.
       expect(EvilCTF::Tools::Crypto).to receive(:xor_crypt).with(anything, 0xAB).at_least(:once)
+      allow(EvilCTF::Tools::Crypto).to receive(:xor_crypt) do |data, key|
+        data.bytes.map { |b| b ^ (key & 0xFF) }.pack('C*')
+      end
       allow(dummy_shell).to receive(:run) do |cmd|
         s = cmd.to_s
         if s.include?('FileMode') || s.include?('Open(')
@@ -209,7 +222,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       end
 
       begin
-        client.upload_file('a', 'C:/tmp/x', xor_key: 0xAB)
+        client.upload_file(local_file, 'C:/tmp/x', xor_key: 0xAB)
       rescue EvilCTF::Errors::UploadError
         # expected error
       end

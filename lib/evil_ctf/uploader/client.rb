@@ -32,8 +32,11 @@ module EvilCTF
         end
       end
 
+      # resume: true (default) auto-resumes an interrupted upload when the
+      # remote partial's sidecar proves it was built from the current local
+      # file; resume: false forces a fresh upload from offset 0.
       def upload_file(*args, local_path: nil, remote_path: nil, encrypt: false, chunk_size: DEFAULT_CHUNK_SIZE,
-                      verify: true, xor_key: nil,
+                      verify: true, xor_key: nil, resume: true,
                       try_smb: true, smb_ip: nil, smb_user: nil, smb_password: nil, smb_hash: nil, smb_domain: '.')
         if args.any?
           local_path ||= args[0]
@@ -45,6 +48,17 @@ module EvilCTF
         end
 
         local_sha256 = Digest::SHA256.file(local_path).hexdigest
+
+        # Hash the target is expected to hold after the upload: the raw
+        # file's hash, or — for encrypted uploads — the hash of the
+        # transformed bytes (verifying against the raw hash would fail
+        # every XOR upload).
+        expected_remote_sha256 = if xor_key || encrypt
+                                   xkey = xor_key || 0x42
+                                   Digest::SHA256.hexdigest(EvilCTF::Tools::Crypto.xor_crypt(File.binread(local_path), xkey))
+                                 else
+                                   local_sha256
+                                 end
 
         # Try SMB push first if we have the necessary info and port 445 is likely
         # open — but never for encrypted uploads (the SMB path cannot apply XOR).
@@ -159,9 +173,15 @@ module EvilCTF
           @logger&.error("[Uploader] Failed to create remote directory. Script: #{ps_mkdir.strip}\nOutput: #{mkdir_res&.output}")
         end
 
-        tmp_token = Time.now.to_i.to_s + rand(9999).to_s
-        tmp_remote = final_remote_path + ".part_#{tmp_token}"
+        # Deterministic partial name: a fresh attempt discovers the previous
+        # partial and can resume from its byte offset, gated by the
+        # .part.meta sidecar (which records what the partial was built
+        # from). A random per-call token made resume impossible.
+        tmp_remote = "#{final_remote_path}.part"
+        meta_remote = "#{final_remote_path}.part.meta"
         escaped_tmp = EvilCTF::Utils.escape_ps_string(tmp_remote)
+        escaped_meta = EvilCTF::Utils.escape_ps_string(meta_remote)
+        tmp_token = Time.now.to_i.to_s + rand(9999).to_s
 
         # Register upload in AppState so UI can show real progress
         upload_id = "upload_#{tmp_token}_#{Thread.current.object_id}"
@@ -209,12 +229,12 @@ module EvilCTF
               res = @shell_adapter.run(ps)
               remote_raw = res&.output ? res.output.to_s : ''
               remote_hash = remote_raw.scan(/[0-9A-Fa-f]{64}/).first
-              if local_sha256 != remote_hash
-                return { ok: false, local_hash: local_sha256, remote_hash: remote_hash,
-                         error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
+              if expected_remote_sha256 != remote_hash
+                return { ok: false, local_hash: expected_remote_sha256, remote_hash: remote_hash,
+                         error: "Hash mismatch: local=#{expected_remote_sha256}, remote=#{remote_hash}" }
               end
 
-              return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: remote_hash }
+              return { ok: true, local_hash: expected_remote_sha256, remote_hash: remote_hash, tmp_hash: remote_hash }
             end
             return true
           rescue StandardError => e
@@ -228,42 +248,47 @@ module EvilCTF
           end
         end
 
-        # Fallback: chunked upload
-        ps_init = <<~PS
-          try {
-            $path = '#{escaped_tmp}'
-            if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
-            $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Create)
-            $fs.Close()
-            "INIT"
-          } catch {
-            "ERROR: $($_.Exception.Message)"
-          }
-        PS
-        init = @shell_adapter.run(ps_init)
-        unless init && init.output.to_s.include?('INIT')
-          puts '[!] Failed to initialize remote tmp file.'.colorize(:red)
-          @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}. Script: #{ps_init.strip}\nOutput: #{init&.output}")
-          raise ::EvilCTF::Errors::UploadError, "Failed to initialize remote tmp file. Output: #{init&.output}"
+        # Fallback: chunked upload with resume.
+        #
+        # The partial lives at a deterministic name (<final>.part) and a
+        # sidecar (<final>.part.meta) records the SHA-256 of what it was
+        # built from (the transformed bytes for encrypted uploads). A fresh
+        # attempt resumes only when the sidecar proves the partial is a
+        # prefix of the current local file; otherwise it starts over.
+        local_size = File.size(local_path)
+        upload_completed = false
+        offset = resolve_resume_offset(
+          tmp_remote, meta_remote, expected_remote_sha256, local_size,
+          resume: resume, chunk_size: chunk_size
+        )
+
+        if offset.zero?
+          ps_init = <<~PS
+            try {
+              $path = '#{escaped_tmp}'
+              if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
+              $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Create)
+              $fs.Close()
+              [System.IO.File]::WriteAllText('#{escaped_meta}', '#{expected_remote_sha256}')
+              "INIT"
+            } catch {
+              "ERROR: $($_.Exception.Message)"
+            }
+          PS
+          init = @shell_adapter.run(ps_init)
+          unless init && init.output.to_s.include?('INIT')
+            puts '[!] Failed to initialize remote tmp file.'.colorize(:red)
+            @logger&.error("[Uploader] Failed to initialize remote tmp file: #{tmp_remote}. Script: #{ps_init.strip}\nOutput: #{init&.output}")
+            raise ::EvilCTF::Errors::UploadError, "Failed to initialize remote tmp file. Output: #{init&.output}"
+          end
         end
 
         begin
           File.open(local_path, 'rb') do |f|
-            escaped_tmp_q = EvilCTF::Utils.escape_ps_string(tmp_remote)
-            ps_exists = "Test-Path '#{escaped_tmp_q}'"
-            exist_res = @shell_adapter.run(ps_exists)
-            offset = 0
-            if exist_res && exist_res.output.to_s.strip == 'True'
-              ps_len = "(Get-Item -Path '#{escaped_tmp_q}' -ErrorAction SilentlyContinue).Length"
-              len_res = @shell_adapter.run(ps_len)
-              offset = len_res&.output ? len_res.output.to_s.scan(/\d+/).first.to_i : 0
-              @logger&.info("[Uploader] Resuming upload at offset #{offset}") if offset&.positive?
-              f.seek(offset)
-            end
+            f.seek(offset) if offset.positive?
 
             idx = (offset / chunk_size)
             bytes_sent = offset
-            local_size = File.size(local_path)
             # ensure app_state knows total
             begin
               EvilCTF::AppState.instance.set_upload(upload_id,
@@ -406,7 +431,7 @@ module EvilCTF
             cleaned = remote_raw.gsub(/[^0-9A-Fa-f]/, '')
             remote_hash = cleaned[0, 64] if cleaned && cleaned.length >= 64
           end
-          if local_sha256 != remote_hash
+          if expected_remote_sha256 != remote_hash
             begin
               begin
                 EvilCTF::AppState.instance.clear_upload(upload_id)
@@ -416,8 +441,8 @@ module EvilCTF
             rescue StandardError
               # best-effort; ignore failures
             end
-            return { ok: false, local_hash: local_sha256, remote_hash: remote_hash,
-                     error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
+            return { ok: false, local_hash: expected_remote_sha256, remote_hash: remote_hash,
+                     error: "Hash mismatch: local=#{expected_remote_sha256}, remote=#{remote_hash}" }
           end
           begin
             begin
@@ -428,7 +453,8 @@ module EvilCTF
           rescue StandardError
             # best-effort; ignore failures
           end
-          return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: tmp_hash }
+          upload_completed = true
+          return { ok: true, local_hash: expected_remote_sha256, remote_hash: remote_hash, tmp_hash: tmp_hash }
         end
 
         begin
@@ -440,15 +466,18 @@ module EvilCTF
         rescue StandardError
           # best-effort; ignore failures
         end
+        upload_completed = true
         true
       ensure
-        # best-effort cleanup of temporary part files if any error occurred
+        # On failure, KEEP the partial file and its sidecar so the next
+        # attempt can resume (the sidecar hash gates resume eligibility);
+        # on success, remove the sidecar (the partial was already moved).
         begin
           if defined?(tmp_remote) && tmp_remote && @shell_adapter
-            begin
-              ::EvilCTF::Uploader.cleanup_tmp(tmp_remote, @shell_adapter)
-            rescue StandardError
-              nil
+            if defined?(upload_completed) && upload_completed
+              ::EvilCTF::Uploader.cleanup_tmp(meta_remote, @shell_adapter)
+            else
+              @logger&.warn("[Uploader] Keeping partial #{tmp_remote} for resume")
             end
           end
         rescue StandardError
@@ -750,6 +779,93 @@ module EvilCTF
         @logger&.warn("[Downloader] Existence probe failed: #{e.class}: #{e.message}")
         EvilCTF::EngineAudit.error(message: 'existence probe failed', error: e, source: 'uploader_client')
         false
+      end
+
+      # Resolve the resume offset for a chunked upload. Returns 0 when a
+      # fresh start is required. A partial is only resumable when its
+      # sidecar hash proves it was built from the current local file (the
+      # transformed bytes for encrypted uploads). Offsets are aligned to
+      # chunk boundaries; a ragged trailing chunk is trimmed remotely.
+      # If the partial is already at least the local size, it either
+      # matches byte-for-byte (upload effectively done — skip to move) or
+      # is corrupt (start over).
+      def resolve_resume_offset(tmp_remote, meta_remote, expected_sha256, local_size, resume:, chunk_size:)
+        return 0 if resume == false
+
+        state = probe_partial_state(tmp_remote, meta_remote)
+        return 0 if state[:length].zero?
+        return 0 unless state[:meta] == expected_sha256
+
+        if state[:length] >= local_size
+          full_hash = remote_file_hash(tmp_remote)
+          return full_hash && full_hash.downcase == expected_sha256 ? local_size : 0
+        end
+
+        aligned = (state[:length] / chunk_size) * chunk_size
+        if state[:length] != aligned
+          puts "[*] Trimming partial to chunk boundary (#{state[:length]} -> #{aligned})".colorize(:cyan)
+          trim_remote_file(tmp_remote, aligned)
+        end
+        puts "[*] Resuming upload from byte #{aligned}/#{local_size}".colorize(:cyan)
+        @logger&.info("[Uploader] Resuming upload at offset #{aligned}")
+        aligned
+      rescue StandardError => e
+        @logger&.warn("[Uploader] Resume probe failed, starting fresh: #{e.class}: #{e.message}")
+        EvilCTF::EngineAudit.error(message: 'resume probe failed', error: e, source: 'uploader_client')
+        0
+      end
+
+      # One round-trip probe of the partial and its sidecar.
+      # length -1 means the partial is absent; meta 'NONE' means no sidecar.
+      def probe_partial_state(tmp_remote, meta_remote)
+        tmp_q = EvilCTF::Utils.escape_ps_string(tmp_remote)
+        meta_q = EvilCTF::Utils.escape_ps_string(meta_remote)
+        ps = <<~PS
+          $len = -1
+          if (Test-Path -LiteralPath '#{tmp_q}') {
+            $len = (Get-Item -LiteralPath '#{tmp_q}').Length
+          }
+          $meta = 'NONE'
+          if (Test-Path -LiteralPath '#{meta_q}') {
+            $meta = (Get-Content -LiteralPath '#{meta_q}' -Raw).Trim()
+          }
+          "STATE::#{$len}::#{$meta}"
+        PS
+        res = @shell_adapter.run(ps)
+        out = res&.output.to_s
+        m = out.match(/STATE::(-?\d+)::(.*)$/)
+        raise "unexpected probe output: #{out.inspect}" unless m
+
+        { length: m[1].to_i, meta: m[2].strip }
+      end
+
+      # SHA-256 of a remote file, or nil when it cannot be computed.
+      def remote_file_hash(path)
+        res = @shell_adapter.run(
+          "(Get-FileHash -LiteralPath '#{EvilCTF::Utils.escape_ps_string(path)}' -Algorithm SHA256).Hash"
+        )
+        out = res&.output&.to_s
+        out&.scan(/[0-9A-Fa-f]{64}/)&.first
+      end
+
+      # Truncate a remote file to the given byte length (drops a ragged
+      # trailing chunk so the next chunk appends at a clean boundary).
+      def trim_remote_file(path, length)
+        ps = <<~PS
+          try {
+            $fs = [System.IO.File]::Open('#{EvilCTF::Utils.escape_ps_string(path)}', [System.IO.FileMode]::Open)
+            $fs.SetLength(#{length.to_i})
+            $fs.Close()
+            "TRIMMED"
+          } catch {
+            "ERROR: $($_.Exception.Message)"
+          }
+        PS
+        res = @shell_adapter.run(ps)
+        out = res&.output&.to_s
+        return if out.include?('TRIMMED')
+
+        raise "trim failed: #{res&.output}"
       end
     end
   end
