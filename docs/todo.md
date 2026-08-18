@@ -16,8 +16,8 @@
 - [ ] 🟡 **Standardize result types** — `Execution.run` returns `OpenStruct`, `Uploader::Client.upload_file` returns `true`/`false`/`Hash`, `CommandDispatcher.dispatch` returns `Hash`; define a shared result type
 - [ ] 🟡 **Remove redundant `require 'evil_ctf/uploader'` in `session.rb`** — already loaded at the top of the file (`require_relative 'uploader'` at line 7 duplicates line 25)
 - [x] 🟡 **Fix `parse_hosts_file` ensure block** — ✅ Fixed 2026-07-17 (P0-5, bogus `ensure` referencing undefined `shell`/`conn`/`logger` removed); verified 2026-08-18: no `ensure` block remains in `Session.parse_hosts_file`
-- [ ] 🔴 **Remove dead `load_config_profile` methods** — `Session.load_config_profile` (`session.rb:315`) and `Tools.load_config_profile` (`tools.rb:579`) have zero call sites (profiles load via `Config::Profiles`); removing them also kills one unsafe `YAML.load_file`
-- [ ] 🟡 **Harden unsafe `YAML.load_file`** — `config/profiles.rb` (×2), `tool_registry.rb` (×1); switch to `YAML.safe_load_file` with explicit permitted tags (arbitrary object instantiation risk on tampered profile/tool YAML)
+- [x] 🔴 **Remove dead `load_config_profile` methods** — ✅ Removed 2026-08-18: `Session.load_config_profile` and `Tools.load_config_profile` deleted (plus the spec block exercising the dead `Tools` variant); profiles load via `Config::Profiles`
+- [x] 🟡 **Harden unsafe `YAML.load_file`** — ✅ Hardened 2026-08-18: `config/profiles.rb` (×2) and `tool_registry.rb` (×1) now use `YAML.safe_load_file`; the 4th site sat inside the removed dead `Session.load_config_profile`
 - [ ] 🟡 **Cap `EngineAudit` backtraces** — `log/engine_audit.log` is already ~740KB; bound the number of recorded backtrace frames
 - [ ] 🟡 **Standardize remote execution path** — `disable_defender` mixes direct `shell.run` with `Execution.run`; route all remote command execution through `Execution`
 - [x] 🟢 **Add frozen string literal to all files** — ✅ Verified 2026-08-18: only `lib/evil_ctf/tui.rb` was still missing `# frozen_string_literal: true`; added, all lib/bin files now carry it
@@ -85,7 +85,7 @@
 
 ## Loot System
 
-- [ ] 🔴 **Loot store race condition** — ⚠️ Claimed fixed 2026-05-13 (Mutex around creds.json read-modify-write), but **no Mutex exists** in `loot_store.rb` or any `save_loot` caller (verified 2026-08-18 — likely lost in a later refactor). Re-add the mutex. (loot.txt append is already safe: OS-level atomic append.)
+- [x] 🔴 **Loot store race condition** — ✅ Genuinely fixed 2026-08-18: `Mutex` re-added (`save_mutex.synchronize` around the creds.json read-modify-write in `LootStore.save_loot`); regression spec (`spec/tools_loot_store_spec.rb`) spawns 8 threads × 25 saves and asserts zero lost updates — verified to fail without the mutex. (loot.txt append is already safe: OS-level atomic append.)
 - [x] 🔴 **Auto flag download scans all of `C:\Users` recursively** — ✅ Verified 2026-08-18: `tools.rb` flag scan now uses `-Depth 3`, size filter (0 < size < 2MB), noise-dir exclusions (AppData/Roaming/Cache/…), 250-file cap, and 50-flag cap
 - [ ] 🟡 **Add structured loot export formats** — JSON, CSV, and STIX 2.1 export for integration with SOAR platforms
 - [ ] 🔴 **Loot deduplication** — partial: `creds.json` IS deduped on save (`json_loot.uniq`, loot_store.rb); `loot.txt` is not — plain-text matches can duplicate across sessions
@@ -136,7 +136,7 @@
 - [ ] 🟡 **Test file transfer with large files** — add tests for files >100MB to verify chunked transfer works
 - [x] 🟢 **Add CI pipeline** — ✅ `.github/workflows/ci.yml` runs unit tests on push/PR (Ruby 3.2); integration job gated on `AWINRM_INTEGRATION=1`
 - [ ] 🟢 **Add CI Ruby matrix** — CI pins Ruby 3.2, dev box runs 3.3.8, vendor bundles exist for 3.3.0 and 4.0.0; test 3.2/3.3/4.0 to match the declared "Ruby 3.0+ / 4.0-ready" story
-- [ ] 🟢 **Wire rubocop into tooling** — `.rubocop.yml` exists and autocorrect was applied (2026-04), but rubocop is not in the Gemfile and is not run in CI
+- [x] 🟢 **Wire rubocop into tooling** — ✅ Wired 2026-08-18: `rubocop ~> 1.89` in Gemfile development group (≥ 1.89 required for `TargetRubyVersion: 4.0`), new parallel `lint` CI job runs `bundle exec rubocop`; codebase green (66 files, 0 offenses)
 
 ---
 
