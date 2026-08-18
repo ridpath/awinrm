@@ -24,6 +24,10 @@ end
 
 group :development do
   gem 'rubocop', '~> 1.89' # needs >= 1.89 for TargetRubyVersion 4.0 support
+  # Transitive dep of rubocop. Pin to 1.28.x: parallel 2.0+ requires Ruby >= 3.3,
+  # which makes the lockfile unusable on the Ruby 3.2 CI matrix job (frozen mode
+  # refuses to re-resolve). rubocop only requires >= 1.10.
+  gem 'parallel', '~> 1.28'
   gem 'tty-prompt'
   gem 'tty-screen'
   gem 'tty-table'
