@@ -747,7 +747,7 @@ module EvilCTF
     def self.render_frame_diff(cursor:, previous_frame:, frame:, cursor_anchor:, show_cursor:)
       width, _height = screen_size
       max = [previous_frame.length, frame.length].max
-      output = ''
+      output = String.new
 
       max.times do |idx|
         current = frame[idx] || ''
@@ -798,7 +798,7 @@ module EvilCTF
       commands.each do |cmd|
         append_stream("[recon_basic] Running: #{cmd}")
         # Use streaming API to get incremental updates as the remote job runs
-        full = ''
+        full = String.new
         res = EvilCTF::Execution.stream(shell, cmd, timeout: 120, poll_interval: 1) do |chunk|
           # chunk may contain multiple lines; append to AppState incrementally
           app_state.append_result(chunk)
