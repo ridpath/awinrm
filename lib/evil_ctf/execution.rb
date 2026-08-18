@@ -5,6 +5,7 @@ require 'securerandom'
 require_relative 'shell_adapter'
 require_relative 'sanitizer'
 require_relative 'engine_audit'
+require_relative 'staging'
 
 module EvilCTF
   module Execution
@@ -104,7 +105,7 @@ module EvilCTF
       adapter = EvilCTF::ShellAdapter.wrap(shell_or_adapter)
       sanitized = EvilCTF::Sanitizer.sanitize_command(command: ps)
       token = "stream_#{Time.now.to_i}_#{SecureRandom.hex(2)}"
-      remote_tmp = "C:/Users/Public/evilctf_#{token}.log"
+      remote_tmp = EvilCTF::Staging.tool_path("evilctf_#{token}.log")
 
       # Start background job that runs the command and appends stdout/stderr to file
       start_job = <<~PS

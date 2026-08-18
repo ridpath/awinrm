@@ -4,6 +4,7 @@
 require 'optparse'
 require_relative 'session'
 require_relative 'connection'
+require_relative 'staging'
 require_relative '../config/profiles'
 
 module EvilCTF
@@ -19,6 +20,7 @@ module EvilCTF
         kerberos: false, realm: nil, keytab: nil,
         banner_mode: :minimal, debug: false,
         ipv6: nil, ipv6_hostname: nil,
+        staging_path: nil,
         verify: true
       }
       parser = OptionParser.new do |opts|
@@ -42,7 +44,8 @@ module EvilCTF
         opts.on('--xor-key KEY', 'XOR encryption key (hex or decimal)') do |v|
           options[:xor_key] = v.start_with?('0x') ? v.to_i(16) : v.to_i
         end
-        opts.on('--random-names', 'Randomize filenames')                 { options[:random_names] = true }
+        opts.on('--random-names', 'Randomize filenames') { options[:random_names] = true }
+        opts.on('--staging-path DIR', 'Remote tool staging directory (default: C:\\Users\\Public)') { |v| options[:staging_path] = v }
         opts.on('--auto-evasion', 'Auto-disable Defender')               { options[:auto_evasion] = true }
         opts.on('--beacon', 'Add sleep delay between commands')          { options[:beacon] = true }
         opts.on('--webhook URL', 'Loot webhook URL')                     { |v| options[:webhook] = v }
@@ -100,6 +103,17 @@ module EvilCTF
       # Normalize username/user after merging profile and CLI
       options[:user] = options[:username] if options[:username]
       options[:username] = options[:user] if options[:user] && !options[:username]
+
+      # Apply an optional custom staging directory (CLI --staging-path or a
+      # staging_path: profile key). Everything remote derives from this.
+      if options[:staging_path]
+        begin
+          EvilCTF::Staging.dir = options[:staging_path]
+        rescue ArgumentError => e
+          warn "[!] #{e.message}"
+          return 1
+        end
+      end
 
       # Tool listing mode: print the catalog and exit without a session.
       if options[:list_tools]

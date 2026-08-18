@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require_relative '../staging'
 
 module EvilCTF
   module Tools
@@ -41,10 +42,10 @@ module EvilCTF
         if tool_key == 'procdump'
           if arch == 'x64'
             adjusted_tool[:filename] = 'procdump64.exe'
-            adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump64.exe'
+            adjusted_tool[:recommended_remote] = EvilCTF::Staging.tool_path('procdump64.exe')
           else
             adjusted_tool[:filename] = 'procdump.exe'
-            adjusted_tool[:recommended_remote] = 'C:\\Users\\Public\\procdump.exe'
+            adjusted_tool[:recommended_remote] = EvilCTF::Staging.tool_path('procdump.exe')
           end
         elsif tool_key == 'mimikatz' && tool[:zip]
           adjusted_tool[:zip_pick] = arch == 'x64' ? tool[:zip_pick_x64] : tool[:zip_pick_x86]

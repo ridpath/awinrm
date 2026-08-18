@@ -4,8 +4,8 @@ require 'spec_helper'
 require_relative '../lib/evil_ctf/tools'
 
 RSpec.describe EvilCTF::Tools do
-  describe 'TOOL_REGISTRY' do
-    let(:registry) { EvilCTF::Tools::TOOL_REGISTRY }
+  describe '.tool_registry' do
+    let(:registry) { EvilCTF::Tools.tool_registry }
 
     it 'is frozen' do
       expect(registry).to be_frozen
@@ -131,14 +131,14 @@ RSpec.describe EvilCTF::Tools do
   end
 
   describe 'macro/alias constants' do
-    it 'NISHANG_REV_REMOTE points to expected path' do
-      expect(EvilCTF::Tools::NISHANG_REV_REMOTE).to include('Invoke-PowerShellTcp.ps1')
+    it 'nishang_rev_remote points to expected path' do
+      expect(EvilCTF::Tools.nishang_rev_remote).to include('Invoke-PowerShellTcp.ps1')
     end
 
-    it 'DOM_ENUM_PS is a non-empty PowerShell script' do
-      expect(EvilCTF::Tools::DOM_ENUM_PS).to be_a(String)
-      expect(EvilCTF::Tools::DOM_ENUM_PS.length).to be > 50
-      expect(EvilCTF::Tools::DOM_ENUM_PS).to include('Get-Domain')
+    it 'dom_enum_ps is a non-empty PowerShell script' do
+      expect(EvilCTF::Tools.dom_enum_ps).to be_a(String)
+      expect(EvilCTF::Tools.dom_enum_ps.length).to be > 50
+      expect(EvilCTF::Tools.dom_enum_ps).to include('Get-Domain')
     end
   end
 

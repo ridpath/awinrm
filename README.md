@@ -107,6 +107,7 @@ ruby evil-ctf.rb --help         # root-level shim
 | `--stealth` | ADS staging + random filenames |
 | `--xor-key KEY` | XOR-encode staged uploads (hex or decimal key) |
 | `--random-names` | Randomize remote filenames |
+| `--staging-path DIR` | Remote tool staging directory (default `C:\Users\Public`; also settable via the `staging_path:` profile key) |
 | `--auto-evasion` | Auto-disable Defender real-time protection on connect |
 | `--auto-exec` | Auto-execute staged tools after staging |
 | `--beacon` | Insert a sleep delay between remote commands (lower activity rate) |
@@ -212,6 +213,7 @@ Staging features:
 - Chunked and XOR-encoded uploads for large binaries
 - Alternate Data Stream storage (`--stealth`)
 - Randomized remote filenames (`--random-names` / `--stealth`)
+- Configurable remote staging directory (`--staging-path` / `staging_path:` profile key) to avoid the high-visibility `C:\Users\Public` default
 - Tool registry with metadata sidecars (`tools/**/*.yml`) and version mapping
 
 Missing tools download into `./tools` via `download_missing`.

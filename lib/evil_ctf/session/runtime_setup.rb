@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative '../staging'
+
 module EvilCTF
   module Session
     module RuntimeSetup
@@ -96,7 +98,7 @@ module EvilCTF
           EvilCTF::Tools.safe_autostage('winpeas', shell, session_options, logger)
         when 'dom'
           EvilCTF::Tools.safe_autostage('powerview', shell, session_options, logger)
-          EvilCTF::Execution.run(shell, "IEX (Get-Content 'C:\\Users\\Public\\PowerView.ps1' -Raw)", timeout: 60)
+          EvilCTF::Execution.run(shell, "IEX (Get-Content '#{EvilCTF::Staging.tool_path('PowerView.ps1')}' -Raw)", timeout: 60)
         when 'sql'
           EvilCTF::SQLEnum.run_sql_enum(shell)
         else
