@@ -607,7 +607,7 @@ module EvilCTF
                 render_modernization_report(target: ip, validation: validation)
                 next
               end
-              conn = EvilCTF::Connection.build_full(**opts)
+              conn = EvilCTF::ConnectionPool.acquire(**opts) # pool: reuse the validated connection
               unless conn
                 TUI.append_stream("[!] Failed to create connection for #{ip}")
                 next
@@ -694,7 +694,7 @@ module EvilCTF
                 render_modernization_report(target: ip, validation: validation)
                 next
               end
-              conn = EvilCTF::Connection.build_full(**opts)
+              conn = EvilCTF::ConnectionPool.acquire(**opts) # pool: reuse the validated connection
               unless conn
                 TUI.append_stream("[!] Failed to create connection for #{ip}")
                 next

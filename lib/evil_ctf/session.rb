@@ -8,6 +8,7 @@ require_relative 'uploader' # loads EvilCTF::Uploader
 require_relative 'enums'
 require_relative 'sql_enum'
 require_relative 'connection'
+require_relative 'connection_pool'
 require_relative 'utils'
 require_relative 'execution'
 require_relative 'tui'
@@ -36,6 +37,7 @@ module EvilCTF
                              debug: false, transport: nil, user_agent: nil,
                              timeout: 10)
       conn = nil
+      handed_to_pool = false
       begin
         conn = EvilCTF::Connection.build_full(
           endpoint: endpoint,
@@ -53,7 +55,19 @@ module EvilCTF
         return { ok: false, error: "Could not create connection for #{endpoint}" } unless conn
 
         validation = EvilCTF::ConnectionValidator.validate(conn, timeout: timeout)
-        return validation if validation[:ok]
+        if validation[:ok]
+          # Hand the validated connection to the pool: run_session's
+          # Bootstrap.build_connection acquires with the same parameters
+          # and reuses it, so the session pays for one handshake instead
+          # of two. A failed validation's connection is still closed in
+          # the ensure block below.
+          EvilCTF::ConnectionPool.register(conn, endpoint: endpoint, user: user, password: password,
+                                                 hash: hash, kerberos: kerberos, realm: realm, keytab: keytab,
+                                                 ssl: ssl, debug: debug, transport: transport,
+                                                 user_agent: user_agent)
+          handed_to_pool = true
+          return validation
+        end
 
         report = nil
         if validation[:error].to_s.match?(/wrong number of arguments|unknown keyword|no keywords accepted|given \d+, expected \d+/i)
@@ -86,16 +100,21 @@ module EvilCTF
 
         { ok: false, error: "#{e.class}: #{e.message}" }
       ensure
-        # test_connection creates a throwaway connection used only for validation.
-        begin
-          conn.close if conn.respond_to?(:close)
-        rescue StandardError
-          nil
-        end
-        begin
-          conn.reset if conn.respond_to?(:reset)
-        rescue StandardError
-          nil
+        # test_connection's connection is throwaway UNLESS validation
+        # succeeded, in which case it was handed to the pool for the
+        # session to reuse (closing it here would kill the session's
+        # connection).
+        unless handed_to_pool
+          begin
+            conn.close if conn.respond_to?(:close)
+          rescue StandardError
+            nil
+          end
+          begin
+            conn.reset if conn.respond_to?(:reset)
+          rescue StandardError
+            nil
+          end
         end
       end
     end
@@ -123,19 +142,24 @@ module EvilCTF
       # --- Session Logging Setup ---
       session_logs = LogChannels.setup(session_options)
 
-      # Centralized connection creation
-      conn = Bootstrap.build_connection(session_options)
-      unless conn
-        puts '[!] ERROR - Could not create WinRM connection. Check your options and try again.'
-        return [false, { ok: false, error: 'Could not create connection' }]
-      end
-
-      # Validate connection and capture validation info
-      validation_info = Bootstrap.resolve_validation(conn, session_options)
-
       shell = nil
       heartbeat = nil
+      conn = nil
+      validation_info = nil
       begin
+        # Centralized connection creation — inside the begin block so the
+        # reconnect retry (below) re-acquires from the pool: the rescue
+        # path evicts the dead connection first, so each attempt gets a
+        # fresh one instead of retrying against a closed object.
+        conn = Bootstrap.build_connection(session_options)
+        unless conn
+          puts '[!] ERROR - Could not create WinRM connection. Check your options and try again.'
+          return [false, { ok: false, error: 'Could not create connection' }]
+        end
+
+        # Validate connection and capture validation info
+        validation_info = Bootstrap.resolve_validation(conn, session_options)
+
         shell = conn.shell(:powershell)
         logger = SessionLogger.new(session_options[:logfile])
         session_options[:logger] = logger
@@ -174,14 +198,31 @@ module EvilCTF
         puts "[!] WARNING - Failed to create PowerShell session: #{e.class}: #{e.message}"
         puts '  This may indicate: network issues, firewall blocking, WinRM misconfig, or auth problems'
 
-        # Attempt to reconnect if possible
+        # Attempt to reconnect if possible. The failed connection is dead
+        # (that is why we are here): evict it from the pool so the retry
+        # builds a fresh one, and tear down the half-broken shell and
+        # heartbeat from this attempt — retry re-runs the begin block but
+        # the ensure block only runs on final exit, so without this the
+        # old shell/heartbeat would leak on every retry.
         if session_options[:reconnect_attempts].to_i.positive?
           puts "[*] Attempting to reconnect (#{session_options[:reconnect_attempts]} attempts remaining)..."
+          begin
+            heartbeat&.stop
+          rescue StandardError
+            nil
+          end
+          begin
+            shell&.close
+          rescue StandardError
+            nil
+          end
+          EvilCTF::ConnectionPool.evict(conn) if defined?(conn) && conn
           sleep(5)
           session_options[:reconnect_attempts] -= 1
           retry
         else
           puts '[!] Maximum reconnection attempts reached. Exiting.'
+          EvilCTF::ConnectionPool.evict(conn) if defined?(conn) && conn
           return [false, validation_info]
         end
       ensure
@@ -193,6 +234,11 @@ module EvilCTF
         end
         EvilCTF::ShellWrapper.exit_session(shell) if defined?(EvilCTF::ShellWrapper.exit_session)
         shell&.close
+        # The session owns its connection for its lifetime; return it to
+        # the pool's discard so multi-host loops and TUI flows do not
+        # accumulate client connections (this also closes connections
+        # that were never handed to the pool).
+        EvilCTF::ConnectionPool.evict(conn) if defined?(conn) && conn
       end
 
       puts '[+] Session closed.'

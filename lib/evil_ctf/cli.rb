@@ -148,6 +148,9 @@ module EvilCTF
           end
           sleep(2) unless idx == hosts.size - 1
         end
+        # Each run_session already evicts its connection at session end;
+        # close_all catches anything left over (e.g. a failed host).
+        EvilCTF::ConnectionPool.close_all
         warn "\n[+] All sessions complete. Check ./loot/"
         return 0
       end
@@ -186,6 +189,10 @@ module EvilCTF
       end
 
       result = Session.run_session(options)
+
+      # The session evicted its own connection at exit; close_all sweeps
+      # anything else still pooled.
+      EvilCTF::ConnectionPool.close_all
 
       # Check for validation failure from session
       if result.is_a?(Array) && !result[0]

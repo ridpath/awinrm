@@ -295,6 +295,7 @@ awinrm/
 │       ├── session/           # bootstrap, interactive_loop, runtime_setup,
 │       │                      # log_channels, command_history, session_logger
 │       ├── command_dispatcher.rb  # handler-based built-in commands
+│       ├── connection_pool.rb # process-wide WinRM connection pool (keyed, LRU-capped)
 │       ├── connection.rb      # WinRM connection + validation
 │       ├── shell_adapter.rb   # shell abstraction (upload/close/…)
 │       ├── execution.rb       # remote job execution + streaming

@@ -33,7 +33,10 @@ module EvilCTF
       end
 
       def build_connection(session_options)
-        EvilCTF::Connection.build_full(
+        # Pool acquire: a pre-validated connection (Session.test_connection
+        # hands validated connections in) is reused, saving a full WinRM
+        # handshake; otherwise a new one is built and pooled.
+        EvilCTF::ConnectionPool.acquire(
           endpoint: session_options[:endpoint],
           user: session_options[:user],
           password: session_options[:password],
