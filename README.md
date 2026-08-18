@@ -39,7 +39,7 @@ AWINRM addresses these with an operator-centric workflow: connect → situationa
 
 ## Requirements
 
-- **Ruby 3.0+** (developed on 3.3; CI runs 3.2; the rubocop config targets Ruby 4.0 compatibility)
+- **Ruby 3.0+** (developed on 3.3; CI tests 3.2, 3.3, and 4.0; the rubocop config targets Ruby 4.0 compatibility)
 - **Bundler**
 - Network access to the target's WinRM endpoint (5985 HTTP / 5986 HTTPS)
 
