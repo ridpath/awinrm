@@ -15,7 +15,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.2
-          bundler-cache: true
       - name: Install dependencies
         run: bundle install --jobs 4 --retry 3
       - name: Run RuboCop
@@ -29,7 +28,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.2
-          bundler-cache: true
       - name: Install dependencies
         run: bundle install --jobs 4 --retry 3
       - name: Run unit tests
