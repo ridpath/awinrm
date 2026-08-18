@@ -108,7 +108,7 @@
 
 ## TUI (Terminal UI)
 
-- [ ] 🔴 **TUI and CLI share no state properly** — `AppState` is a singleton but CLI mode doesn't populate it; TUI features are limited when launched from CLI
+- [ ] 🔴 **TUI and CLI share no state properly** — ⏸ 2026-08-18: shelved, blocked by TUI completion. Confirmed the gap concretely: `AppState` has a full API (sessions/active-session/tasks/alerts/cli-input/history/menu/pane-focus/screen-size) but `cli.rb` and `session.rb` never touch it, and the TUI keeps a parallel local `ui_state` hash (host/user/os_info/connected/remote_prompt) instead of consuming `AppState`. Wire-up design (CLI/session lifecycle → AppState, TUI reads AppState) is scoped in the session notes; revisit once the TUI is finished
 - [ ] 🟡 **Add multi-session TUI support** — manage multiple WinRM connections simultaneously in the TUI
 - [ ] 🟡 **Add real-time output streaming in TUI** — long-running commands should update the UI as they produce output
 - [ ] 🟡 **Add TUI help overlay** — show available hotkeys and commands as an overlay
