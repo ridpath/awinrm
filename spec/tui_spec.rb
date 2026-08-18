@@ -36,4 +36,31 @@ RSpec.describe EvilCTF::TUI do
       end.not_to raise_error
     end
   end
+
+  describe '.render_frame_diff (regression: frozen string buffers)' do
+    let(:cursor) { double('cursor', move_to: 'MOVE', show: 'SHOW', hide: 'HIDE') }
+
+    before do
+      allow(EvilCTF::TUI).to receive(:screen_size).and_return([80, 24])
+    end
+
+    it 'emits only changed lines without raising on the mutable buffer' do
+      out = EvilCTF::TUI.render_frame_diff(cursor: cursor, previous_frame: %w[same old],
+                                           frame: %w[same new], cursor_anchor: nil, show_cursor: false)
+      # one diff-line move plus the final cursor park (move_to 0, frame.length)
+      expect(out.scan('MOVE').size).to eq(2)
+      expect(out).to include('new')
+      expect(out).not_to include('old')
+      expect(out).to include('HIDE')
+    end
+
+    it 'clears trailing lines when the frame shrinks' do
+      out = EvilCTF::TUI.render_frame_diff(cursor: cursor, previous_frame: %w[same gone also-gone],
+                                           frame: %w[same], cursor_anchor: nil, show_cursor: true)
+      expect(out).not_to include('gone')
+      expect(out).to include('SHOW')
+      # two stale lines each get a clear (\e[0K) from the shrink branch
+      expect(out.scan("\e[0K").size).to be >= 2
+    end
+  end
 end

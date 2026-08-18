@@ -23,6 +23,7 @@ group :test do
 end
 
 group :development do
+  gem 'rubocop', '~> 1.89' # needs >= 1.89 for TargetRubyVersion 4.0 support
   gem 'tty-prompt'
   gem 'tty-screen'
   gem 'tty-table'

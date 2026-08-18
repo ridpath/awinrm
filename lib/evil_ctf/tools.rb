@@ -576,16 +576,6 @@ module EvilCTF
       Stager.get_system_architecture(shell)
     end
 
-    def self.load_config_profile(name)
-      profile_file = File.join('config', "#{name}.yaml")
-      return {} unless File.exist?(profile_file)
-
-      YAML.safe_load_file(profile_file) || {}
-    rescue StandardError => e
-      puts "[!] Failed to load profile #{name}: #{e.message}"
-      {}
-    end
-
     # Keys that are safe to persist in a connection profile. Secrets
     # (:password / :hash) and runtime objects are deliberately excluded.
     PROFILE_SAFE_KEYS = %i[

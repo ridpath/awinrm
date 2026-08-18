@@ -14,7 +14,7 @@ module EvilCTF
         return if matches.nil? || matches.empty?
 
         FileUtils.mkdir_p('loot')
-        begin
+        save_mutex.synchronize do
           File.open('loot/loot.txt', 'a') do |f|
             matches.each do |m|
               f.puts(m) unless m.is_a?(String) && m.start_with?('{')
@@ -42,6 +42,12 @@ module EvilCTF
         rescue StandardError => e
           puts "[!] Save loot failed: #{e.message}"
         end
+      end
+
+      # Serializes the creds.json read-modify-write so concurrent callers
+      # (interactive loop + async workers) can't lose updates.
+      def self.save_mutex
+        @save_mutex ||= Mutex.new
       end
 
       def beacon_loot(webhook, matches)

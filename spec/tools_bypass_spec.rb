@@ -172,11 +172,4 @@ RSpec.describe EvilCTF::Tools do
       EvilCTF::Tools.download_missing_tools
     end
   end
-
-  describe '.load_config_profile' do
-    it 'returns empty hash for missing profile' do
-      result = EvilCTF::Tools.load_config_profile('nonexistent_profile_xyz')
-      expect(result).to eq({})
-    end
-  end
 end

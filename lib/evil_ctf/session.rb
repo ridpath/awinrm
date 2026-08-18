@@ -311,17 +311,5 @@ module EvilCTF
     rescue IPAddr::InvalidAddressError
       false
     end
-
-    def self.load_config_profile(profile_name)
-      profile_path = "profiles/#{profile_name}.yaml"
-      unless File.exist?(profile_path)
-        puts "[-] Profile not found: #{profile_path}"
-        return {}
-      end
-      YAML.load_file(profile_path)
-    rescue StandardError => e
-      puts "[-] Failed to load profile: #{e.message}"
-      {}
-    end
   end
 end

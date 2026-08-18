@@ -31,7 +31,7 @@ module EvilCTF
       metadata_path = sidecar_candidates.find { |candidate| File.exist?(candidate) }
       return default_metadata(path: path) unless metadata_path
 
-      data = YAML.load_file(metadata_path)
+      data = YAML.safe_load_file(metadata_path)
       data.is_a?(Hash) ? data : default_metadata(path: path)
     rescue StandardError
       default_metadata(path: path)

@@ -779,6 +779,8 @@ module EvilCTF
                 end
 
       print output unless output.empty?
+
+      output
     end
 
     def self.toggle_menu(sel)

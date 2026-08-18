@@ -17,7 +17,7 @@ module EvilCTF
         profile_file = File.join(root, 'config', 'profiles.yaml')
         return {} unless File.exist?(profile_file)
 
-        data = YAML.load_file(profile_file)
+        data = YAML.safe_load_file(profile_file)
         data.is_a?(Hash) ? symbolize_hash(data) : {}
       rescue StandardError
         {}
@@ -29,7 +29,7 @@ module EvilCTF
         root = self.root_path(root_path)
         local_file = File.join(root, 'profiles', "#{name}.yaml")
         if File.exist?(local_file)
-          data = YAML.load_file(local_file)
+          data = YAML.safe_load_file(local_file)
           if data.is_a?(Hash)
             # If the file is wrapped in a top-level profile key, prefer that object.
             nested = data[name.to_s] || data[name.to_sym]
