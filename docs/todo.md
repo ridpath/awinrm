@@ -88,7 +88,7 @@
 - [x] 🔴 **Loot store race condition** — ✅ Genuinely fixed 2026-08-18: `Mutex` re-added (`save_mutex.synchronize` around the creds.json read-modify-write in `LootStore.save_loot`); regression spec (`spec/tools_loot_store_spec.rb`) spawns 8 threads × 25 saves and asserts zero lost updates — verified to fail without the mutex. (loot.txt append is already safe: OS-level atomic append.)
 - [x] 🔴 **Auto flag download scans all of `C:\Users` recursively** — ✅ Verified 2026-08-18: `tools.rb` flag scan now uses `-Depth 3`, size filter (0 < size < 2MB), noise-dir exclusions (AppData/Roaming/Cache/…), 250-file cap, and 50-flag cap
 - [ ] 🟡 **Add structured loot export formats** — JSON, CSV, and STIX 2.1 export for integration with SOAR platforms
-- [ ] 🔴 **Loot deduplication** — partial: `creds.json` IS deduped on save (`json_loot.uniq`, loot_store.rb); `loot.txt` is not — plain-text matches can duplicate across sessions
+- [x] 🔴 **Loot deduplication** — ✅ 2026-08-18: `loot.txt` now dedupes too — `save_loot` loads existing lines into a Set under the `save_mutex` and appends only lines not already present (within-run and across sessions); the event log stays append-only. Regression specs: repeat-save dedup, pre-existing-file dedup, event-log preservation, 8×25 concurrent saves with shared lines landing exactly once — verified to fail on the old code
 - [ ] 🟡 **Add loot encryption at rest** — encrypt `loot/creds.json` with a key derived from a passphrase
 - [ ] 🟢 **Add loot tagging/metadata** — tag loot entries with source host, macro, timestamp for traceability
 - [ ] 🟢 **Add loot database backend** — SQLite or similar for structured querying across multiple engagements
@@ -155,7 +155,7 @@
 
 ## OPSEC & Stealth
 
-- [ ] 🔴 **Staged tools go to `C:\Users\Public` by default** — high-visibility location; ~33 hardcoded `C:\Users\Public` paths in lib; add configurable staging path per profile
+- [x] 🔴 **Staged tools go to `C:\Users\Public` by default** — ✅ 2026-08-18: `C:\Users\Public` remains the default, but is now the *only* hardcoded location — new `EvilCTF::Staging` module (`lib/evil_ctf/staging.rb`) is the single source of truth; `--staging-path DIR` CLI flag and `staging_path:` profile key override it (validated: drive-letter/UNC paths, normalized to backslashes, invalid input exits 1). All ~30 staging sites now derive from it: tool registry `recommended_remote` (registry is built lazily, cached per staging dir), macro step strings, nishang/inveigh remote paths, LSASS dump + retry paths, ad-hoc upload destinations, temp log path, PowerView IEX sites. Banner flag-scan paths (C:\, user Desktops) intentionally left alone — they are loot locations, not staging. README CLI table + staging features updated
 - [ ] 🟡 **Add process hollowing/suspended process execution** — launch tools in suspended state, inject payload, resume (reduces EDR visibility)
 - [ ] 🟡 **Add AMSI context reset detection** — detect if AMSI has been re-initialized (e.g., by EDR) and re-apply bypass
 - [ ] 🟡 **Randomize PowerShell variable names in bypass scripts** — current scripts use predictable variable names (`$kernel32`, `$amsiDll`)
