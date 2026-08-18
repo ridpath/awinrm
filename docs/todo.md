@@ -135,7 +135,7 @@
 - [ ] 🟡 **Add test fixtures for PowerShell output** — sample PS output for loot scanner, enum, and bypass verification tests
 - [ ] 🟡 **Test file transfer with large files** — add tests for files >100MB to verify chunked transfer works
 - [x] 🟢 **Add CI pipeline** — ✅ `.github/workflows/ci.yml` runs unit tests on push/PR (Ruby 3.2); integration job gated on `AWINRM_INTEGRATION=1`
-- [ ] 🟢 **Add CI Ruby matrix** — CI pins Ruby 3.2, dev box runs 3.3.8, vendor bundles exist for 3.3.0 and 4.0.0; test 3.2/3.3/4.0 to match the declared "Ruby 3.0+ / 4.0-ready" story
+- [ ] 🟢 **Add CI Ruby matrix** — CI pins Ruby 3.2, dev box runs 3.3.8, vendor bundles exist for 3.3.0 and 4.0.0; test 3.2/3.3/4.0 to match the declared "Ruby 3.0+ / 4.0-ready" story. Note (2026-08-18): the lockfile is generated under Ruby 3.3 (pins `parallel 2.1.0`, requires ≥ 3.3); the 3.2 CI job only passes because plain `bundle install` re-resolves per ruby — `bundler-cache`/frozen mode hard-fails on 3.2. A proper multi-Ruby lockfile (or per-ruby lock steps) should be part of this work
 - [x] 🟢 **Wire rubocop into tooling** — ✅ Wired 2026-08-18: `rubocop ~> 1.89` in Gemfile development group (≥ 1.89 required for `TargetRubyVersion: 4.0`), new parallel `lint` CI job runs `bundle exec rubocop`; codebase green (66 files, 0 offenses)
 
 ---
