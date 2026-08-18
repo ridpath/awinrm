@@ -97,7 +97,7 @@
 
 ## AMSI / ETW Bypass
 
-- [ ] 🔴 **Bypass is session-scoped only** — each new WinRM shell gets a fresh PowerShell process; bypass must be re-applied per shell
+- [x] 🔴 **Bypass is session-scoped only** — ✅ 2026-08-18: the AMSI/ETW patches are in-memory and die with the shell's PowerShell process. New central applier `EvilCTF::Tools.apply_bypass(shell, amsi:, etw:, verify:, verbose:)` (runs BYPASS_4MSI_PS + ETW_BYPASS_PS via `Execution.run`, returns per-step status, never raises) is now called from every shell-creation path: `RuntimeSetup.run_auto_evasion` (auto-evasion sessions now patch the *interactive* shell too — previously only macros/manual `bypass-4msi` did — and reconnects re-run prepare, so a reconnect re-patches the new shell), and both TUI extra-session flows (`profile[:auto_evasion]` → re-apply + stream note). Defender disable and bypass apply are independent: a Defender failure no longer skips the bypass. Specs: 6× `apply_bypass` (script selection, flags, failure reporting, error rescue, verbose output) + 3× `run_auto_evasion` wiring
 - [ ] 🟡 **Add DotNetToJIT bypass** — for .NET-based EDR hooks that inspect assemblies at JIT time
 - [ ] 🟡 **Add ClamAV/Cisco AMP bypass detection** — detect specific EDR products and apply targeted bypasses
 - [ ] 🟡 **Make bypass optional per command** — some operators may want to run specific commands with AMSI active (e.g., for blue team visibility)

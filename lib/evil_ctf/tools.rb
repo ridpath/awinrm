@@ -22,6 +22,7 @@ require_relative 'tools/loot_scanner'
 require_relative 'tools/loot_store'
 
 module EvilCTF
+  # rubocop:disable Metrics/ModuleLength -- kitchen-sink module; the "Consolidate bypass scripts" todo tracks the split
   module Tools
     # Tool catalog, built lazily and cached per staging directory: the
     # recommended_remote values derive from EvilCTF::Staging (configurable
@@ -344,6 +345,36 @@ module EvilCTF
       "[+] ETW bypass verification: patch-only mode enabled"
       "[+] Bypass verification complete"
     PS
+
+    # Central per-shell bypass applier.
+    #
+    # The AMSI/ETW patches are in-memory and scoped to the PowerShell
+    # process that owns a shell — every new WinRM shell (reconnects,
+    # TUI extra sessions, adapter shells) gets a fresh process and must
+    # re-apply them. All shell-creation paths call this instead of
+    # duplicating script execution.
+    def self.apply_bypass(shell, amsi: true, etw: true, verify: false, verbose: true)
+      results = {}
+      if amsi
+        amsi_result = EvilCTF::Execution.run(shell, BYPASS_4MSI_PS, timeout: 60)
+        results[:amsi] = amsi_result.ok
+        results[:amsi_output] = amsi_result.output.to_s
+      end
+      if etw
+        etw_result = EvilCTF::Execution.run(shell, ETW_BYPASS_PS, timeout: 60)
+        results[:etw] = etw_result.ok
+        results[:etw_output] = etw_result.output.to_s
+      end
+      if verify
+        verify_result = EvilCTF::Execution.run(shell, BYPASS_VERIFICATION_PS, timeout: 30)
+        results[:verification_output] = verify_result.output.to_s
+      end
+      puts "[*] Per-shell bypass applied: AMSI=#{results.fetch(:amsi, 'skipped')} ETW=#{results.fetch(:etw, 'skipped')}" if verbose
+      results
+    rescue StandardError => e
+      puts "[!] Per-shell bypass failed: #{e.class}: #{e.message}" if verbose
+      { amsi: amsi ? false : nil, etw: etw ? false : nil, error: e.message }
+    end
 
     # Built lazily so the PowerView path follows the configured staging dir.
     def self.powerview_all_ps
@@ -708,4 +739,5 @@ module EvilCTF
       end
     end
   end
+  # rubocop:enable Metrics/ModuleLength
 end

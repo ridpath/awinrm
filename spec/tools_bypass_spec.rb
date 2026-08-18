@@ -142,6 +142,77 @@ RSpec.describe EvilCTF::Tools do
     end
   end
 
+  describe '.apply_bypass' do
+    let(:shell) { instance_double('Shell') }
+    let(:good_result) { OpenStruct.new(ok: true, output: '[+] Patched') }
+
+    it 'runs the AMSI and ETW scripts on the shell' do
+      executed = []
+      allow(EvilCTF::Execution).to receive(:run) do |_sh, cmd, **_opts|
+        executed << cmd
+        good_result
+      end
+
+      results = described_class.apply_bypass(shell, verbose: false)
+
+      expect(executed).to eq([described_class::BYPASS_4MSI_PS, described_class::ETW_BYPASS_PS])
+      expect(results[:amsi]).to eq(true)
+      expect(results[:etw]).to eq(true)
+    end
+
+    it 'skips the AMSI script when amsi: false' do
+      executed = []
+      allow(EvilCTF::Execution).to receive(:run) { |_, cmd, **_opts|
+        executed << cmd
+        good_result
+      }
+
+      results = described_class.apply_bypass(shell, amsi: false, verbose: false)
+
+      expect(executed).to eq([described_class::ETW_BYPASS_PS])
+      expect(results).not_to have_key(:amsi)
+      expect(results[:etw]).to eq(true)
+    end
+
+    it 'runs verification when verify: true' do
+      executed = []
+      allow(EvilCTF::Execution).to receive(:run) { |_, cmd, **_opts|
+        executed << cmd
+        good_result
+      }
+
+      described_class.apply_bypass(shell, verify: true, verbose: false)
+
+      expect(executed.last).to eq(described_class::BYPASS_VERIFICATION_PS)
+    end
+
+    it 'reports failed script results instead of raising' do
+      allow(EvilCTF::Execution).to receive(:run)
+        .and_return(OpenStruct.new(ok: false, output: 'ERROR'))
+
+      results = described_class.apply_bypass(shell, verbose: false)
+
+      expect(results[:amsi]).to eq(false)
+      expect(results[:etw]).to eq(false)
+    end
+
+    it 'rescues execution errors and returns a failure hash' do
+      allow(EvilCTF::Execution).to receive(:run).and_raise('connection lost')
+
+      results = described_class.apply_bypass(shell, verbose: false)
+
+      expect(results[:amsi]).to eq(false)
+      expect(results[:error]).to eq('connection lost')
+    end
+
+    it 'prints a status line when verbose' do
+      allow(EvilCTF::Execution).to receive(:run).and_return(good_result)
+
+      expect { described_class.apply_bypass(shell, verbose: true) }
+        .to output(/Per-shell bypass applied: AMSI=true ETW=true/).to_stdout
+    end
+  end
+
   describe 'CommandManager' do
     subject(:manager) { EvilCTF::Tools::CommandManager.new }
 

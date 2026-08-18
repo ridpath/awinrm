@@ -613,6 +613,12 @@ module EvilCTF
                 next
               end
               sh = conn.shell(:powershell)
+              # Fresh WinRM shell = fresh PowerShell process: re-apply the
+              # per-shell AMSI/ETW bypass when the session is evasion-mode.
+              if profile[:auto_evasion]
+                bypass_res = EvilCTF::Tools.apply_bypass(sh, verbose: false)
+                TUI.append_stream(bypass_res[:error] ? "[!] Bypass re-apply failed for #{ip}: #{bypass_res[:error]}" : "[+] Re-applied per-shell bypass for #{ip}")
+              end
               adapter = EvilCTF::ShellAdapter.wrap(sh)
               app_state.set_active_session(adapter)
               TUI.add_session({ ip: ip, user: user, adapter: adapter, thread: Thread.current, started_at: Time.now })
@@ -694,6 +700,12 @@ module EvilCTF
                 next
               end
               sh = conn.shell(:powershell)
+              # Fresh WinRM shell = fresh PowerShell process: re-apply the
+              # per-shell AMSI/ETW bypass when the session is evasion-mode.
+              if profile[:auto_evasion]
+                bypass_res = EvilCTF::Tools.apply_bypass(sh, verbose: false)
+                TUI.append_stream(bypass_res[:error] ? "[!] Bypass re-apply failed for #{ip}: #{bypass_res[:error]}" : "[+] Re-applied per-shell bypass for #{ip}")
+              end
               adapter = EvilCTF::ShellAdapter.wrap(sh)
               app_state.set_active_session(adapter)
               TUI.add_session({ ip: ip, user: user, adapter: adapter, thread: Thread.current, started_at: Time.now })

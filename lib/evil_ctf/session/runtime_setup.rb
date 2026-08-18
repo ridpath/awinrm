@@ -15,7 +15,7 @@ module EvilCTF
         puts "[+] Connected to #{orig_ip}"
         show_banner(shell, session_options)
 
-        run_auto_evasion(shell) if session_options[:auto_evasion]
+        run_auto_evasion(shell, session_options) if session_options[:auto_evasion]
 
         EvilCTF::Session.setup_autocomplete(history)
         prompt_cache = detect_prompt(shell)
@@ -71,11 +71,23 @@ module EvilCTF
         prompt_cache
       end
 
-      def run_auto_evasion(shell)
+      def run_auto_evasion(shell, session_options)
         puts '[*] Auto-evasion enabled; attempting to disable Defender...'
-        EvilCTF::Tools.disable_defender(shell)
-      rescue StandardError => e
-        puts "[!] Auto-evasion failed: #{e.class}: #{e.message}"
+        begin
+          EvilCTF::Tools.disable_defender(shell)
+        rescue StandardError => e
+          puts "[!] Defender disable failed (continuing): #{e.class}: #{e.message}"
+        end
+        # Defender is machine-wide, but the AMSI/ETW patches live in this
+        # shell's PowerShell process only — apply them here so the
+        # interactive session (not just macros) is covered. Reconnects
+        # re-run this prepare path, which re-patches the new shell.
+        begin
+          EvilCTF::Tools.apply_bypass(shell)
+          session_options[:bypass_applied] = true
+        rescue StandardError => e
+          puts "[!] Per-shell bypass failed: #{e.class}: #{e.message}"
+        end
       end
 
       def launch_tui(shell, session_options)
