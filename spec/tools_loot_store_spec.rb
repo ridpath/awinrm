@@ -35,6 +35,51 @@ RSpec.describe EvilCTF::Tools::LootStore do
       expect(Dir.exist?('loot')).to be false
     end
 
+    it 'dedupes plain-text matches across repeated saves' do
+      described_class.save_loot(['flag {test123}', 'user:pass:dom'])
+      described_class.save_loot(['flag {test123}']) # duplicate
+      lines = File.read('loot/loot.txt').lines
+      expect(lines.count).to eq(2)
+      expect(lines.count { |l| l.strip == 'flag {test123}' }).to eq(1)
+    end
+
+    it 'does not re-append lines already present from a previous session' do
+      # Simulate a previous session having written loot.txt on disk.
+      FileUtils.mkdir_p('loot')
+      File.write('loot/loot.txt', "flag {prev}\nuser:pass:dom\n")
+      described_class.save_loot(['flag {prev}', 'new:match'])
+      lines = File.read('loot/loot.txt').lines
+      expect(lines.count { |l| l.strip == 'flag {prev}' }).to eq(1)
+      expect(lines.count { |l| l.strip == 'user:pass:dom' }).to eq(1)
+      expect(lines.count { |l| l.strip == 'new:match' }).to eq(1)
+    end
+
+    it 'keeps the event log append-only even for deduped loot lines' do
+      described_class.save_loot(['dup-line'], event_logfile: 'loot/events.log')
+      described_class.save_loot(['dup-line'], event_logfile: 'loot/events.log')
+      expect(File.read('loot/loot.txt').lines.count).to eq(1)
+      expect(File.read('loot/events.log').lines.count).to eq(2)
+    end
+
+    it 'does not lose or duplicate plain-text updates under concurrent callers' do
+      threads = 8
+      per_thread = 25
+      workers = Array.new(threads) do |t|
+        Thread.new do
+          per_thread.times do |i|
+            # Mix unique and shared lines: shared lines must land exactly once.
+            described_class.save_loot(["user#{t}-#{i}", 'shared-line'])
+          end
+        end
+      end
+      workers.each(&:join)
+
+      lines = File.read('loot/loot.txt').lines.map(&:chomp)
+      expect(lines.size).to eq(lines.uniq.size) # no duplicates
+      expect(lines.count { |l| l.start_with?('user') }).to eq(threads * per_thread)
+      expect(lines.count { |l| l == 'shared-line' }).to eq(1)
+    end
+
     it 'does not lose JSON updates under concurrent callers' do
       threads = 8
       per_thread = 25

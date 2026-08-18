@@ -15,9 +15,17 @@ module EvilCTF
 
         FileUtils.mkdir_p('loot')
         save_mutex.synchronize do
+          # Plain-text dedup: creds.json is already deduped, but loot.txt was
+          # a blind append, so the same match repeated across sessions/hosts.
+          # Read the existing lines once into a Set and append only new ones.
+          existing = File.exist?('loot/loot.txt') ? File.read('loot/loot.txt').lines.to_set(&:chomp) : Set.new
           File.open('loot/loot.txt', 'a') do |f|
             matches.each do |m|
-              f.puts(m) unless m.is_a?(String) && m.start_with?('{')
+              next if m.is_a?(String) && m.start_with?('{')
+              next if existing.include?(m.to_s)
+
+              f.puts(m)
+              existing << m.to_s
             end
           end
 
