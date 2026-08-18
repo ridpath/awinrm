@@ -115,7 +115,7 @@ ruby evil-ctf.rb --help         # root-level shim
 | `--log FILE` | Append command output to a file |
 | `--log-session` | Enable structured session logging under `log/` |
 | `--enum TYPE` | Run an enumeration preset on connect (`basic`, `deep`, `sql`, …) |
-| `--fresh` | Bypass the enumeration cache |
+| `--fresh` | Bypass the enumeration cache and force re-staging of tools (skips the "already staged" hash check) |
 | `--user-agent AGENT` | Custom User-Agent for WinRM HTTP requests |
 | `--no-verify` | Skip connection validation |
 | `--list-tools` | Print the tool catalog and exit |
@@ -214,6 +214,7 @@ Staging features:
 - Alternate Data Stream storage (`--stealth`)
 - Randomized remote filenames (`--random-names` / `--stealth`)
 - Configurable remote staging directory (`--staging-path` / `staging_path:` profile key) to avoid the high-visibility `C:\Users\Public` default
+- Version detection: staged tools are hash-compared (SHA-256) against the target before upload and re-staging is skipped when the current build is already present (`--fresh` forces a re-stage)
 - Tool registry with metadata sidecars (`tools/**/*.yml`) and version mapping
 
 Missing tools download into `./tools` via `download_missing`.

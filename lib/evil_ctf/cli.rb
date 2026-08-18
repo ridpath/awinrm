@@ -54,7 +54,7 @@ module EvilCTF
         opts.on('--profile NAME', 'Load profile from profiles/*.yaml')   { |v| options[:profile] = v }
         opts.on('--list-tools', 'List available tools and exit')         { options[:list_tools] = true }
         opts.on('--enum TYPE', 'Run enumeration (basic, deep, etc.)')    { |v| options[:enum] = v }
-        opts.on('--fresh', 'Bypass enum cache')                          { options[:fresh] = true }
+        opts.on('--fresh', 'Bypass enum cache and force re-staging of tools') { options[:fresh] = true }
         opts.on('-k', '--kerberos', 'Use Kerberos')                      { options[:kerberos] = true }
         opts.on('--realm REALM', 'Kerberos realm')                       { |v| options[:realm] = v }
         opts.on('--keytab FILE', 'Kerberos keytab')                      { |v| options[:keytab] = v }

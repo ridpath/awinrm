@@ -52,7 +52,7 @@
 ## Tool Staging & Execution
 
 - [x] 🔴 **Fix `tool all` in dispatcher** — ✅ Fixed 2026-05-13: resolved by merging duplicate tool handler into one unified handler (see dedup fix above).
-- [ ] 🟡 **Add tool version detection and caching** — detect remote tool version before re-staging; skip if already current
+- [x] 🟡 **Add tool version detection and caching** — ✅ 2026-08-18: `Stager.safe_autostage` now hash-compares the staged file against the target before upload — new `remote_file_current?` runs `Test-Path` + `Get-FileHash -Algorithm SHA256` on the remote and compares to `Digest::SHA256.file` locally (the same hash pair the uploader verifies with); a match skips the upload with an "already staged (hash match)" note. Only applies to deterministic destinations (`--random-names`/`--stealth` produce fresh names by definition) and `--fresh` forces a re-stage (flag help + README updated). Missing file, different build, or any error → re-stage. Specs: 11 new in `spec/stager_spec.rb` (hash hit/miss/case, missing, error rescue, skip-path, `--fresh`/`--random-names`/`--stealth` bypasses)
 - [ ] 🟡 **Support custom tool definitions** — allow operators to add tools via a `custom_tools.yaml` config file
 - [ ] 🟡 **Add post-execution cleanup option** — `--cleanup` or `tool <name> --cleanup` to remove staged binaries after execution
 - [ ] 🟡 **Handle tools that require interactive input** — e.g., Mimikatz interactive mode; add a passthrough mode for interactive tools

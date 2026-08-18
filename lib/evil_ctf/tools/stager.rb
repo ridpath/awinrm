@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'securerandom'
 require_relative '../staging'
+require_relative '../execution'
 
 module EvilCTF
   module Tools
@@ -107,6 +109,15 @@ module EvilCTF
           return false
         end
 
+        # Version detection: skip the upload when the target already holds
+        # the current build (same SHA-256). Only meaningful for
+        # deterministic destinations — randomized and ADS-stream names are
+        # fresh by definition. `--fresh` forces a re-stage.
+        if !(options[:fresh] || options[:random_names] || options[:stealth]) && remote_file_current?(shell, remote_path, local_path)
+          puts "[+] #{adjusted_tool[:name]} already staged at #{remote_path} (hash match) — skipping upload"
+          return remote_path
+        end
+
         puts "[*] Staging #{adjusted_tool[:name]} to #{remote_path}"
         remote_path = randomized_remote_path(remote_path) if options[:random_names]
         remote_path = ads_stream_path(remote_path) if options[:stealth]
@@ -203,6 +214,34 @@ module EvilCTF
       rescue StandardError => e
         puts "[!] Remote extracted-path lookup failed: #{e.message}"
         nil
+      end
+
+      # True when the remote file exists and is byte-identical (SHA-256) to
+      # the local source — i.e. the target already holds the current build
+      # and the upload can be skipped. Uses the same hash pair the uploader
+      # verifies with (Digest::SHA256 locally, Get-FileHash remotely).
+      # Returns false (re-stage) on any error or missing remote file.
+      def remote_file_current?(shell, remote_path, local_path)
+        local_hash = Digest::SHA256.file(local_path).hexdigest
+        result = EvilCTF::Execution.run(shell, remote_file_hash_ps(remote_path), timeout: 60)
+        return false unless result.ok
+
+        match = result.output.to_s.match(/HASH::([0-9a-fA-F]{64})/)
+        return false unless match
+
+        match[1].downcase == local_hash
+      rescue StandardError => e
+        puts "[!] Remote hash check failed (will re-stage): #{e.message}"
+        false
+      end
+
+      def remote_file_hash_ps(remote_path)
+        escaped = EvilCTF::Utils.escape_ps_string(remote_path)
+        <<~PS
+          if (Test-Path -LiteralPath '#{escaped}') {
+            "HASH::" + (Get-FileHash -LiteralPath '#{escaped}' -Algorithm SHA256).Hash
+          } else { 'MISSING' }
+        PS
       end
 
       def find_tool_on_disk(tool_key, registry:)
