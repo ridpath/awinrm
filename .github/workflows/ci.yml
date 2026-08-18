@@ -1,8 +1,9 @@
-name: CI
+name: Build & Release
 
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
@@ -35,3 +36,29 @@ jobs:
           AWINRM_INTEGRATION: 0
         run: bundle exec rspec
 
+  # Runs only for v* tag pushes, and only after lint + tests pass in the
+  # same run — a release always ships verified code.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, unit-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Package release tarball
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          # export-ignore in .gitattributes strips dev-only files
+          git archive --format=tar.gz -o "awinrm-${tag}.tar.gz" HEAD
+          sha256sum "awinrm-${tag}.tar.gz" | tee "awinrm-${tag}.tar.gz.sha256"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" \
+            "awinrm-${tag}.tar.gz" \
+            "awinrm-${tag}.tar.gz.sha256" \
+            --title "$tag" \
+            --notes "Automated release: lint and unit tests passed on the tagged commit. Verify the tarball with \`sha256sum -c awinrm-${tag}.tar.gz.sha256\`."
