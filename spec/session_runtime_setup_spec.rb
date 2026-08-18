@@ -10,7 +10,7 @@ RSpec.describe EvilCTF::Session::RuntimeSetup do
   describe '.run_auto_evasion' do
     it 'disables Defender and applies the per-shell AMSI/ETW bypass' do
       expect(EvilCTF::Tools).to receive(:disable_defender).with(shell)
-      expect(EvilCTF::Tools).to receive(:apply_bypass).with(shell)
+      expect(EvilCTF::Bypass).to receive(:apply).with(shell)
 
       described_class.run_auto_evasion(shell, session_options)
 
@@ -19,7 +19,7 @@ RSpec.describe EvilCTF::Session::RuntimeSetup do
 
     it 'still applies the per-shell bypass when Defender disable fails' do
       allow(EvilCTF::Tools).to receive(:disable_defender).and_raise('Get-MpComputerStatus not available')
-      expect(EvilCTF::Tools).to receive(:apply_bypass).with(shell)
+      expect(EvilCTF::Bypass).to receive(:apply).with(shell)
 
       described_class.run_auto_evasion(shell, session_options)
 
@@ -28,7 +28,7 @@ RSpec.describe EvilCTF::Session::RuntimeSetup do
 
     it 'rescues bypass failures without raising (session must not die on evasion errors)' do
       allow(EvilCTF::Tools).to receive(:disable_defender)
-      allow(EvilCTF::Tools).to receive(:apply_bypass).and_raise('shell lost')
+      allow(EvilCTF::Bypass).to receive(:apply).and_raise('shell lost')
 
       expect { described_class.run_auto_evasion(shell, session_options) }.not_to raise_error
     end

@@ -506,7 +506,7 @@ module EvilCTF
       register('bypass-4msi') do |shell, _args, _session_options|
         output = []
         # Run detection
-        detect_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::BYPASS_DETECTION_PS, timeout: 30)
+        detect_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::BYPASS_DETECTION_PS, timeout: 30)
         output << detect_result.output
 
         # Run enhanced or standard bypass based on detection
@@ -516,11 +516,11 @@ module EvilCTF
                     '[*] Running standard AMSI bypass...'
                   end
 
-        bypass_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::BYPASS_4MSI_PS, timeout: 60)
+        bypass_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::BYPASS_4MSI_PS, timeout: 60)
         output << bypass_result.output
 
         # Run verification
-        verify_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::BYPASS_VERIFICATION_PS, timeout: 30)
+        verify_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::BYPASS_VERIFICATION_PS, timeout: 30)
         output << verify_result.output
 
         output.join("\n")
@@ -530,15 +530,15 @@ module EvilCTF
       register('bypass-etw') do |shell, _args, _session_options|
         output = []
         # Run detection
-        detect_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::BYPASS_DETECTION_PS, timeout: 30)
+        detect_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::BYPASS_DETECTION_PS, timeout: 30)
         output << detect_result.output
 
         # Run ETW bypass
-        etw_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::ETW_BYPASS_PS, timeout: 60)
+        etw_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::ETW_BYPASS_PS, timeout: 60)
         output << etw_result.output
 
         # Run verification
-        verify_result = EvilCTF::Execution.run(shell, EvilCTF::Tools::BYPASS_VERIFICATION_PS, timeout: 30)
+        verify_result = EvilCTF::Execution.run(shell, EvilCTF::Bypass::BYPASS_VERIFICATION_PS, timeout: 30)
         output << verify_result.output
 
         output.join("\n")

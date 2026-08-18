@@ -300,6 +300,7 @@ awinrm/
 │       ├── execution.rb       # remote job execution + streaming
 │       ├── uploader.rb        # chunked uploader (+ smb fallback, client)
 │       ├── tools.rb           # tool registry facade + staging rules
+│       ├── bypass.rb          # AMSI/ETW bypass scripts + per-shell applier
 │       ├── tools/             # stager, downloader, macro_engine, alias_engine,
 │       │                      # loot_scanner, loot_store, crypto, …
 │       ├── banner.rb          # situational awareness banner

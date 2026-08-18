@@ -198,13 +198,13 @@ RSpec.describe EvilCTF::CommandDispatcher do
 
     it 'bypass-4msi runs detection PS first' do
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::BYPASS_DETECTION_PS, anything
+        shell, EvilCTF::Bypass::BYPASS_DETECTION_PS, anything
       ).and_return(OpenStruct.new(output: 'Windows 10', exitcode: 0))
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::BYPASS_4MSI_PS, anything
+        shell, EvilCTF::Bypass::BYPASS_4MSI_PS, anything
       ).and_return(OpenStruct.new(output: 'Bypass OK', exitcode: 0))
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::BYPASS_VERIFICATION_PS, anything
+        shell, EvilCTF::Bypass::BYPASS_VERIFICATION_PS, anything
       ).and_return(OpenStruct.new(output: 'Verified', exitcode: 0))
       dispatcher.dispatch(
         name: 'bypass-4msi', args: nil,
@@ -214,13 +214,13 @@ RSpec.describe EvilCTF::CommandDispatcher do
 
     it 'bypass-etw runs ETW bypass' do
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::BYPASS_DETECTION_PS, anything
+        shell, EvilCTF::Bypass::BYPASS_DETECTION_PS, anything
       ).and_return(OpenStruct.new(output: 'Windows 10', exitcode: 0))
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::ETW_BYPASS_PS, anything
+        shell, EvilCTF::Bypass::ETW_BYPASS_PS, anything
       ).and_return(OpenStruct.new(output: 'ETW patched', exitcode: 0))
       expect(EvilCTF::Execution).to receive(:run).with(
-        shell, EvilCTF::Tools::BYPASS_VERIFICATION_PS, anything
+        shell, EvilCTF::Bypass::BYPASS_VERIFICATION_PS, anything
       ).and_return(OpenStruct.new(output: 'Verified', exitcode: 0))
       dispatcher.dispatch(
         name: 'bypass-etw', args: nil,

@@ -83,7 +83,7 @@ module EvilCTF
         # interactive session (not just macros) is covered. Reconnects
         # re-run this prepare path, which re-patches the new shell.
         begin
-          EvilCTF::Tools.apply_bypass(shell)
+          EvilCTF::Bypass.apply(shell)
           session_options[:bypass_applied] = true
         rescue StandardError => e
           puts "[!] Per-shell bypass failed: #{e.class}: #{e.message}"
