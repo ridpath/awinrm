@@ -49,9 +49,7 @@ module EvilCTF
       end
 
       def resolve_validation(conn, session_options)
-        if session_options[:prevalidated] && session_options[:validation_info].is_a?(Hash)
-          return session_options[:validation_info]
-        end
+        return session_options[:validation_info] if session_options[:prevalidated] && session_options[:validation_info].is_a?(Hash)
 
         begin
           validation_info = EvilCTF::ConnectionValidator.validate(conn, timeout: 10)

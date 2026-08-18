@@ -148,9 +148,7 @@ module EvilCTF
             }
           PS
           init_res = run_remote(command: init_ps, timeout: 30)
-          unless init_res && init_res.output.to_s.include?('OK')
-            raise EvilCTF::Errors::UploadError, "InternalFileManager init failed: #{init_res&.output}"
-          end
+          raise EvilCTF::Errors::UploadError, "InternalFileManager init failed: #{init_res&.output}" unless init_res && init_res.output.to_s.include?('OK')
 
           File.open(local_path, 'rb') do |file|
             while (chunk = file.read(chunk_size))
@@ -170,9 +168,7 @@ module EvilCTF
                                 }
               PS
               append_res = run_remote(command: append_ps, timeout: 60)
-              unless append_res && append_res.output.to_s.include?('OK')
-                raise EvilCTF::Errors::UploadError, "InternalFileManager upload failed: #{append_res&.output}"
-              end
+              raise EvilCTF::Errors::UploadError, "InternalFileManager upload failed: #{append_res&.output}" unless append_res && append_res.output.to_s.include?('OK')
             end
           end
 
@@ -201,7 +197,7 @@ module EvilCTF
           raise ArgumentError, 'local_path is required' if local_path.to_s.empty?
 
           FileUtils.mkdir_p(File.dirname(local_path))
-          File.open(local_path, 'wb') {}
+          File.binwrite(local_path, '')
 
           offset = 0
           loop do
@@ -296,7 +292,11 @@ module EvilCTF
 
       def close
         @shell&.close
-        begin; @conn.reset if @conn.respond_to?(:reset); rescue StandardError; end
+        begin
+          @conn.reset if @conn.respond_to?(:reset)
+        rescue StandardError
+          # reset is best-effort on close; ignore failures
+        end
       end
 
       def adapter_info

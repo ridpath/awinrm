@@ -87,9 +87,7 @@ module EvilCTF
             available = !path.nil? && !path.to_s.empty?
           end
 
-          unless available
-            warnings << "Local dependency not found for #{tool_key}; staging/download may be required at runtime"
-          end
+          warnings << "Local dependency not found for #{tool_key}; staging/download may be required at runtime" unless available
 
           {
             tool: tool_key,

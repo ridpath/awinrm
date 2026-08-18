@@ -1,5 +1,6 @@
 # AWINRM RuboCop configuration
 # CTF/post-exploitation tool — pragmatism over perfection
+# Aligned with the codebase on 2026-08-18 (rubocop 1.89, TargetRubyVersion 4.0)
 
 AllCops:
   NewCops: enable
@@ -14,10 +15,39 @@ Style/Documentation:
 Style/FrozenStringLiteralComment:
   Enabled: false                    # Not consistent across files yet
 
+Style/OpenStructUse:
+  Enabled: false                    # OpenStruct is a declared dependency (Gemfile) and the
+                                    # result type of Execution.run; the Struct/Hash migration
+                                    # is tracked in docs/todo.md ("Standardize result types")
+
+Naming/PredicateMethod:
+  Enabled: false                    # False positives on action methods that return a status
+                                    # boolean (upload, download, expand_macro, handle_key, ...);
+                                    # renaming them to `?` would be wrong
+
+# ── Layout ───────────────────────────────────────────────────────
+
+Layout/LineLength:
+  Max: 200                          # PS command strings are single-quoted Ruby strings that
+                                    # can't be reflowed without changing the remote script
+  Exclude:
+    - lib/evil_ctf/tools.rb         # embedded PowerShell payload constants (byte arrays)
+
 # ── Metrics — raised thresholds for CTF tooling code ────────────
+# Plus per-cop excludes for the UI / dispatch / transfer hotspots that
+# exceed even the raised limits (verified 2026-08-18, rubocop 1.89).
 
 Metrics/MethodLength:
-  Max: 120                          # Many bypass/script handlers are long
+  Max: 120
+  Exclude:
+    - lib/evil_ctf/banner.rb
+    - lib/evil_ctf/cli.rb
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/session/interactive_loop.rb
+    - lib/evil_ctf/sql_enum.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader.rb
+    - lib/evil_ctf/uploader/client.rb
 
 Metrics/BlockLength:
   Max: 250                          # RSpec describe blocks are naturally long
@@ -25,23 +55,68 @@ Metrics/BlockLength:
 
 Metrics/ClassLength:
   Max: 500
+  Exclude:
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader/client.rb
 
 Metrics/ModuleLength:
   Max: 600
+  Exclude:
+    - lib/evil_ctf/banner.rb
 
 Metrics/AbcSize:
   Max: 80
+  Exclude:
+    - lib/evil_ctf/banner.rb
+    - lib/evil_ctf/cli.rb
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/session/interactive_loop.rb
+    - lib/evil_ctf/sql_enum.rb
+    - lib/evil_ctf/tools/stager.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader.rb
+    - lib/evil_ctf/uploader/client.rb
 
 Metrics/CyclomaticComplexity:
   Max: 25
+  Exclude:
+    - lib/evil_ctf/banner.rb
+    - lib/evil_ctf/cli.rb
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/execution.rb
+    - lib/evil_ctf/session/interactive_loop.rb
+    - lib/evil_ctf/tools/stager.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader.rb
+    - lib/evil_ctf/uploader/client.rb
 
 Metrics/PerceivedComplexity:
   Max: 25
+  Exclude:
+    - lib/evil_ctf/banner.rb
+    - lib/evil_ctf/cli.rb
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/execution.rb
+    - lib/evil_ctf/session/interactive_loop.rb
+    - lib/evil_ctf/tools/stager.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader.rb
+    - lib/evil_ctf/uploader/client.rb
 
 Metrics/ParameterLists:
   Max: 10
+  Exclude:
+    - lib/evil_ctf/session.rb
+    - lib/evil_ctf/uploader/client.rb
 
-# ── Style — relaxed for operator tooling ────────────────────────
+Metrics/BlockNesting:
+  Exclude:
+    - lib/evil_ctf/command_dispatcher.rb
+    - lib/evil_ctf/tui.rb
+    - lib/evil_ctf/uploader/client.rb
+
+# ── Style — relaxed for operator tooling ─────────────────────────
 
 Style/GlobalVars:
   Enabled: false                    # $global vars used in PS script helpers
@@ -57,16 +132,18 @@ Naming/VariableNumber:
 
 Style/DoubleNegation:
   Enabled: false                    # autocorrect (!x.nil?) is semantically
-                                  # different from !!x when x is `false`;
-                                  # !!x used deliberately for truthiness.
-                                  # NOTE: `--only Style/DoubleNegation`
-                                  # force-re-enables this cop (10 `!!` sites)
+                                    # different from !!x when x is `false`;
+                                    # !!x used deliberately for truthiness.
+                                    # NOTE: `--only Style/DoubleNegation`
+                                    # force-re-enables this cop (10 `!!` sites)
 
 # ── Security — keep this one ────────────────────────────────────
+
 Security/Open:
   Enabled: true
 
 # ── Lint — most are valuable, but suppress unused-arg noise in blocks ──
+
 Lint/UnusedBlockArgument:
   Enabled: true
   AllowUnusedKeywordArguments: false

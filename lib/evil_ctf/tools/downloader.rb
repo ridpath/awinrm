@@ -84,9 +84,11 @@ module EvilCTF
 
         puts '[*] Trying Ruby URI.open...'
         begin
+          # rubocop:disable Security/Open -- tool-download fallback; URLs come from the tool registry, not operator input
           URI.open(url) do |f|
             File.binwrite(path, f.read)
           end
+          # rubocop:enable Security/Open
           success = true
         rescue StandardError => e
           puts "[!] Ruby URI failed: #{e.message}"
@@ -94,7 +96,8 @@ module EvilCTF
         return success if success
 
         puts '[*] Trying PowerShell Invoke-WebRequest...'
-        ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{EvilCTF::Utils.escape_ps_string(url)}' -OutFile '#{EvilCTF::Utils.escape_ps_string(path)}' -UseBasicParsing } catch { exit 1 }\""
+        ps_cmd = "powershell -Command \"try { Invoke-WebRequest -Uri '#{EvilCTF::Utils.escape_ps_string(url)}' " \
+                 "-OutFile '#{EvilCTF::Utils.escape_ps_string(path)}' -UseBasicParsing } catch { exit 1 }\""
         system(ps_cmd)
       end
 

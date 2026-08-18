@@ -135,9 +135,9 @@ module EvilCTF
         puts '=' * 70
         case mode
         when :minimal
-          show_minimal_banner(shell, options, no_color: true)
+          show_minimal_banner(shell, options)
         when :expanded
-          show_expanded_banner(shell, options, no_color: true)
+          show_expanded_banner(shell, options)
         end
         return
       end
@@ -157,7 +157,7 @@ module EvilCTF
     end
 
     # Minimal Mode with Color
-    def self.show_minimal_banner(shell, options, no_color: false)
+    def self.show_minimal_banner(shell, options)
       # ASCII Art
       puts <<~BANNER.green
          █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
@@ -209,9 +209,7 @@ module EvilCTF
         end.to_s.sub('INTEGRITY|||', '').strip.split.first.to_s
 
         hostname = 'Unknown' if hostname.empty? || hostname.include?('TIMED_OUT') || hostname.start_with?('ERROR:')
-        if current_user.empty? || current_user.include?('TIMED_OUT') || current_user.start_with?('ERROR:')
-          current_user = 'Unknown'
-        end
+        current_user = 'Unknown' if current_user.empty? || current_user.include?('TIMED_OUT') || current_user.start_with?('ERROR:')
         domain = 'Unknown' if domain.empty? || domain.include?('TIMED_OUT') || domain.start_with?('ERROR:')
         integrity = 'Unknown' if integrity.to_s.empty? || integrity.to_s.start_with?('ERROR:')
       rescue StandardError
@@ -232,9 +230,7 @@ module EvilCTF
       begin
         priv_check = EvilCTF::Execution.run(shell, 'whoami /priv', timeout: 10).output.to_s
         puts '  [!] SeDebugPrivilege - LSASS access possible'.red if priv_check.include?('SeDebugPrivilege')
-        if priv_check.include?('SeImpersonatePrivilege')
-          puts '  [!] SeImpersonatePrivilege - Potato attacks possible'.red
-        end
+        puts '  [!] SeImpersonatePrivilege - Potato attacks possible'.red if priv_check.include?('SeImpersonatePrivilege')
       rescue StandardError => e
         puts "  [!] Privilege check failed: #{e.message}".yellow
       end
@@ -311,7 +307,7 @@ module EvilCTF
     end
 
     # Expanded Mode with Color
-    def self.show_expanded_banner(shell, options, no_color: false)
+    def self.show_expanded_banner(shell, options)
       # ASCII Art
       puts <<~BANNER.green
          █████╗ ██╗    ██╗██╗███╗   ██╗██████╗ ███╗   ███╗
@@ -497,9 +493,7 @@ module EvilCTF
 
         puts "\n  Patch Summary:".white
         puts "    Total Hotfixes: #{patch_count}".white
-        if last_patch && !last_patch.empty? && (last_patch.lines.count > 1)
-          puts "    Last Patch: #{last_patch.lines.last.strip}"
-        end
+        puts "    Last Patch: #{last_patch.lines.last.strip}" if last_patch && !last_patch.empty? && (last_patch.lines.count > 1)
       rescue StandardError => e
         puts "  [ ] Patch info error: #{e.message}".yellow
       end
@@ -509,8 +503,10 @@ module EvilCTF
       security_cmds = {
         'LSA Protection' => '(Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa" -Name "RunAsPPL" -ErrorAction SilentlyContinue).RunAsPPL',
         'Credential Guard' => '(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard -ErrorAction SilentlyContinue).SecurityServicesRunning',
-        'BitLocker Status' => 'if (Get-Command Manage-BDE -ErrorAction SilentlyContinue) { (Manage-BDE -Status C: 2>$null | findstr "Conversion Status") -split ": " | Select-Object -Last 1 } else { "Not Available" }',
-        'SMB Signing' => '(Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "RequireSecuritySignature" -ErrorAction SilentlyContinue).RequireSecuritySignature',
+        'BitLocker Status' => 'if (Get-Command Manage-BDE -ErrorAction SilentlyContinue) { (Manage-BDE -Status C: 2>$null | ' \
+                              'findstr "Conversion Status") -split ": " | Select-Object -Last 1 } else { "Not Available" }',
+        'SMB Signing' => '(Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" ' \
+                         '-Name "RequireSecuritySignature" -ErrorAction SilentlyContinue).RequireSecuritySignature',
         'Wdigest Enabled' => 'Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest" -Name UseLogonCredential -ErrorAction SilentlyContinue',
         'LSASS Protection' => '(Get-Process -Name lsass -ErrorAction SilentlyContinue).Protection'
       }
@@ -519,9 +515,7 @@ module EvilCTF
       security_cmds.each_key do |label|
         output = security_results[label].to_s.strip
         output = 'Not Enabled' if output.empty? || output == 'N/A' || output == 'ERROR'
-        if label == 'BitLocker Status' && (output.include?('not recognized') || output.empty? || output == 'ERROR')
-          output = 'Not Available'
-        end
+        output = 'Not Available' if label == 'BitLocker Status' && (output.include?('not recognized') || output.empty? || output == 'ERROR')
         puts "  #{label.ljust(30)} : #{output}".white
       end
 
@@ -531,7 +525,8 @@ module EvilCTF
         'IIS Installed' => 'Get-WindowsFeature -Name Web-Server | Select-Object -ExpandProperty InstallState',
         'SQL Server Instances' => '(Get-Service -Name "MSSQL*" | Select-Object -ExpandProperty Name) -join ", "',
         'Exchange Installed' => 'Get-Service -Name "MSExchange*" | Select-Object -ExpandProperty Name',
-        'AV/EDR Processes' => '(Get-Process | Where-Object {$_.ProcessName -match "csfalcon|crowd|sentinel|defender|sophos|mcafee|symantec|carbon"} | Select-Object -ExpandProperty ProcessName) -join ", "'
+        'AV/EDR Processes' => '(Get-Process | Where-Object {$_.ProcessName -match "csfalcon|crowd|sentinel|defender|sophos|mcafee|symantec|carbon"} ' \
+                              '| Select-Object -ExpandProperty ProcessName) -join ", "'
       }
 
       app_results = batch_run(shell, app_cmds)

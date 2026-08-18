@@ -49,9 +49,7 @@ module EvilCTF
                  run_with_timer(timeout: timeout) { adapter.run(sanitized) }
                end
 
-      if result == :timed_out
-        return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: TIMED_OUT after #{timeout}s")
-      end
+      return OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: TIMED_OUT after #{timeout}s") if result == :timed_out
 
       out_raw = result&.output ? result.output.to_s : ''
       out = normalize_output(out_raw)
@@ -179,18 +177,26 @@ module EvilCTF
         begin
           adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue")
         rescue StandardError
+          # cleanup is best-effort; ignore failures
         end
         begin
           adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue")
         rescue StandardError
+          # cleanup is best-effort; ignore failures
         end
 
         OpenStruct.new(ok: true, exitcode: nil, output: final_output)
       rescue StandardError => e
         EvilCTF::EngineAudit.error(message: 'execution.stream failed', error: e, source: 'execution')
-        begin; adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue"); rescue StandardError; end
         begin
-          adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue"); rescue StandardError
+          adapter.run("Remove-Job -Id #{job_id} -Force -ErrorAction SilentlyContinue")
+        rescue StandardError
+          # job cleanup is best-effort; ignore failures
+        end
+        begin
+          adapter.run("Remove-Item -Path '#{remote_tmp}' -Force -ErrorAction SilentlyContinue")
+        rescue StandardError
+          # tmp cleanup is best-effort; ignore failures
         end
         OpenStruct.new(ok: false, exitcode: nil, output: "ERROR: #{e.class}: #{e.message}")
       end
@@ -204,7 +210,7 @@ module EvilCTF
       writer.close
 
       loop do
-        ready = IO.select([reader], nil, nil, 0.01)
+        ready = reader.wait_readable(0.01)
         break unless ready
 
         begin

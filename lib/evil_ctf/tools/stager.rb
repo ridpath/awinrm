@@ -96,9 +96,7 @@ module EvilCTF
           end
 
           extracted_file = adjusted_tool[:zip_pick]&.split('/')&.last
-          located_path = if extracted_file && !File.extname(extracted_file).empty?
-                           locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file)
-                         end
+          located_path = locate_extracted_remote_path(shell, tool[:recommended_remote], extracted_file) if extracted_file && !File.extname(extracted_file).empty?
           if located_path
             puts "[+] ZIP content already present at #{located_path}"
             return true
@@ -121,7 +119,7 @@ module EvilCTF
         false
       end
 
-      def execute_staged_tool(key, args = '', shell, registry:, remote_path: nil)
+      def execute_staged_tool(key, args, shell, registry:, remote_path: nil)
         tool = registry[key]
         return false unless tool
 

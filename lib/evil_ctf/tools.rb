@@ -543,7 +543,7 @@ module EvilCTF
       )
     end
 
-    def self.execute_staged_tool(key, args = '', shell, remote_path: nil)
+    def self.execute_staged_tool(key, args, shell, remote_path: nil)
       Stager.execute_staged_tool(key, args, shell, registry: TOOL_REGISTRY, remote_path: remote_path)
     end
 

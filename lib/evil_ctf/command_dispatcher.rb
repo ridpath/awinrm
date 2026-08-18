@@ -329,9 +329,8 @@ module EvilCTF
           retry_res = shell.run(procdump_retry_ps)
           retry_out = retry_res&.output.to_s
           retry_out.lines.each { |ln| puts "[procdump] #{ln.strip}" unless ln.to_s.strip.empty? }
-          if retry_out.include?('RETRY_EXIT::-1073741515')
-            puts '[!] ProcDump failed with STATUS_DLL_NOT_FOUND (-1073741515). Target likely lacks required runtime/DLL dependencies for this binary.'
-          end
+          puts '[!] ProcDump failed with STATUS_DLL_NOT_FOUND (-1073741515). Target likely lacks required runtime/DLL dependencies for this binary.' \
+               if retry_out.include?('RETRY_EXIT::-1073741515')
 
           dump_path, locate_out = resolve_dump_path.call
         end
@@ -365,9 +364,8 @@ module EvilCTF
           )
         else
           puts '[!] No LSASS dump file found in C:\\Users\\Public after procdump execution.'
-          if locate_out.include?('ERROR::')
-            puts "[!] Dump discovery error: #{locate_out.lines.map(&:strip).find { |ln| ln.start_with?('ERROR::') }}"
-          end
+          puts "[!] Dump discovery error: #{locate_out.lines.map(&:strip).find { |ln| ln.start_with?('ERROR::') }}" \
+               if locate_out.include?('ERROR::')
           puts '[!] Current user likely lacks required LSASS access (admin + SeDebug and no PPL/Credential Guard constraints).'
         end
         ''

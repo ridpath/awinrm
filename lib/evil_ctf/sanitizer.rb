@@ -11,9 +11,7 @@ module EvilCTF
 
       # Permit multi-line PowerShell scripts while rejecting control characters
       # that can corrupt local/remote command transport.
-      if normalized.match?(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/)
-        raise ArgumentError, 'command contains unsupported control characters'
-      end
+      raise ArgumentError, 'command contains unsupported control characters' if normalized.match?(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/)
 
       normalized
     end

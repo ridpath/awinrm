@@ -62,9 +62,7 @@ module EvilCTF
         prompt_cache = '> '
         begin
           prompt_probe = EvilCTF::Execution.run(shell, 'prompt', timeout: 2)
-          if prompt_probe.ok && prompt_probe.output && !prompt_probe.output.to_s.empty?
-            prompt_cache = EvilCTF::Session.normalize_readline_prompt(prompt_probe.output)
-          end
+          prompt_cache = EvilCTF::Session.normalize_readline_prompt(prompt_probe.output) if prompt_probe.ok && prompt_probe.output && !prompt_probe.output.to_s.empty?
         rescue StandardError
           nil
         end

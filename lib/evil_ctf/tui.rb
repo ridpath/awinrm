@@ -38,7 +38,7 @@ module EvilCTF
       width, height = screen_size
       total = [width, 40].max
 
-      left_w = [[(total * 0.20).to_i, 18].max, total - 15].min
+      left_w = (total * 0.20).to_i.clamp(18, total - 15)
       center_w = [total - left_w - 3, 10].max
 
       lines = []
@@ -183,7 +183,7 @@ module EvilCTF
 
     def self.render_dashboard(_shell, state = {})
       width, _height = screen_size
-      total = [[width, 72].max, 120].min
+      total = width.clamp(72, 120)
 
       puts "┌#{'─' * (total - 2)}┐"
       puts "#{'│ EvilCTF Dashboard'.ljust(total - 1)}│"
@@ -198,8 +198,8 @@ module EvilCTF
       puts "│ #{fit_line(os_info, total - 4).ljust(total - 4)} │"
 
       puts "├#{'─' * (total - 2)}┤"
-      puts '│ ' + fit_line("Connection Status: #{state[:connected] ? 'Connected' : 'Disconnected'}",
-                           total - 4).ljust(total - 4) + ' │'
+      puts "│ #{fit_line("Connection Status: #{state[:connected] ? 'Connected' : 'Disconnected'}",
+                         total - 4).ljust(total - 4)} │"
       puts "│ #{fit_line("Shell Type: #{state[:shell] || 'PowerShell'}", total - 4).ljust(total - 4)} │"
       puts "│ #{fit_line("SSL Verification: #{state[:ssl] ? 'OK' : 'UNVERIFIED'}", total - 4).ljust(total - 4)} │"
       puts "└#{'─' * (total - 2)}┘"
@@ -320,6 +320,7 @@ module EvilCTF
           end
         end
       rescue StandardError
+        # ignore TUI failure; keep the loop alive
       end
 
       # Drain any pending stdin bytes (avoid accidentally processing keys
@@ -334,6 +335,7 @@ module EvilCTF
           end
         end
       rescue StandardError
+        # ignore TUI failure; keep the loop alive
       end
       ignore_until = Time.now + 0.35
 
@@ -438,6 +440,7 @@ module EvilCTF
               prompt_line = "#{prompt_line} " unless prompt_line.end_with?(' ')
               app_state.append_stream(prompt_line)
             rescue StandardError
+              # ignore TUI failure; keep the loop alive
             end
           rescue StandardError => e
             app_state.append_stream("[!] Worker error: #{e.class}: #{e.message}")
@@ -703,9 +706,8 @@ module EvilCTF
             # ignore prompt failures
           end
           next
-        else
-          # any other key just refreshes the frame on the next loop iteration
         end
+        # Any other key just refreshes the frame on the next loop iteration
       end
     ensure
       # Clean shutdown: stop poller and restore terminal mode
@@ -719,10 +721,12 @@ module EvilCTF
         poller.join(1) if poller&.alive?
         worker.join(1) if worker&.alive?
       rescue StandardError
+        # ignore TUI failure; keep the loop alive
       end
       begin
         Signal.trap('WINCH', previous_winch) if previous_winch
       rescue StandardError
+        # ignore TUI failure; keep the loop alive
       end
       begin
         begin
@@ -736,6 +740,7 @@ module EvilCTF
           nil
         end
       rescue StandardError
+        # ignore TUI failure; keep the loop alive
       end
     end
 
@@ -884,7 +889,7 @@ module EvilCTF
 
       return '…' if width == 1
 
-      min_input_width = [[(width * 0.5).to_i, 8].max, width].min
+      min_input_width = (width * 0.5).to_i.clamp(8, width)
 
       visible_input = if input.length <= min_input_width
                         input
@@ -994,7 +999,7 @@ module EvilCTF
       begin
         require 'tty-table'
         width, _height = screen_size
-        value_width = [[width - 28, 20].max, 120].min
+        value_width = (width - 28).clamp(20, 120)
         rows = [
           ['Target', fit_line(target.to_s, value_width)],
           ['Ruby 4 Compatibility', fit_line(status, value_width)],

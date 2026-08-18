@@ -211,6 +211,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       begin
         client.upload_file('a', 'C:/tmp/x', xor_key: 0xAB)
       rescue EvilCTF::Errors::UploadError
+        # expected error
       end
     end
   end
@@ -239,6 +240,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       begin
         client.upload_file('localfile.txt', 'C:/target.txt:hidden')
       rescue EvilCTF::Errors::UploadError
+        # expected error
       end
       expect(ads_used).to be(true)
     end
@@ -267,6 +269,7 @@ RSpec.describe EvilCTF::Uploader::Client do
       begin
         client.upload_file('f', 'C:/target.txt:ads')
       rescue EvilCTF::Errors::UploadError
+        # expected error
       end
       expect(mkdir_called).to be(false)
     end

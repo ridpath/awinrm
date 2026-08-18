@@ -76,9 +76,7 @@ module EvilCTF
         end
 
         output.each_line do |line|
-          if line.include?('CategoryInfo') || line.include?('FullyQualifiedErrorId') || line.include?('is not recognized')
-            next
-          end
+          next if line.include?('CategoryInfo') || line.include?('FullyQualifiedErrorId') || line.include?('is not recognized')
 
           PATTERNS.each do |regex|
             line.scan(regex).each do |match|

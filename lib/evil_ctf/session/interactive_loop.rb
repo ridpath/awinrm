@@ -84,9 +84,7 @@ module EvilCTF
                 # Command was handled by dispatcher
                 if dispatch_result[:ok]
                   puts dispatch_result[:output] if dispatch_result[:output] && !dispatch_result[:output].empty?
-                  if dispatch_result[:output] && !dispatch_result[:output].empty?
-                    LogChannels.append(session_logs[:telemetry], 'DISPATCH_OUT', dispatch_result[:output])
-                  end
+                  LogChannels.append(session_logs[:telemetry], 'DISPATCH_OUT', dispatch_result[:output]) if dispatch_result[:output] && !dispatch_result[:output].empty?
                 elsif dispatch_result[:error]
                   puts "[!] #{dispatch_result[:error]}"
                   LogChannels.append(session_logs[:telemetry], 'DISPATCH_ERR', dispatch_result[:error])

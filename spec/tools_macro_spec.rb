@@ -12,7 +12,7 @@ RSpec.describe EvilCTF::Tools::CommandManager do
     it 'stages nishang and resolves callback placeholders before execution' do
       allow(EvilCTF::Tools).to receive(:safe_autostage).with('nishang', shell, {}, nil).and_return(true)
       executed = []
-      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, timeout:|
+      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, **_opts|
         if cmd.include?("Get-ChildItem -Path 'C:\\Users\\Public' -Filter 'Invoke-PowerShellTcp.ps1' -Recurse")
           OpenStruct.new(output: 'FOUND::C:\\Users\\Public\\nishang-master\\Shells\\Invoke-PowerShellTcp.ps1',
                          exitcode: 0)
@@ -35,7 +35,7 @@ RSpec.describe EvilCTF::Tools::CommandManager do
 
     it 'returns false when nishang staging does not produce the remote script' do
       allow(EvilCTF::Tools).to receive(:safe_autostage).with('nishang', shell, {}, nil).and_return(true)
-      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, timeout:|
+      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, **_opts|
         if cmd.include?("Get-ChildItem -Path 'C:\\Users\\Public' -Filter 'Invoke-PowerShellTcp.ps1' -Recurse")
           OpenStruct.new(output: 'MISSING', exitcode: 0)
         else
@@ -50,7 +50,7 @@ RSpec.describe EvilCTF::Tools::CommandManager do
       allow(EvilCTF::Tools).to receive(:safe_autostage).with('inveigh', shell, {}, nil).and_return(true)
       executed = []
 
-      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, timeout:|
+      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, **_opts|
         if cmd.include?("Test-Path 'C:\\Users\\Public\\Inveigh.ps1'")
           OpenStruct.new(output: 'FOUND::C:\\Users\\Public\\Inveigh.ps1', exitcode: 0)
         else
@@ -69,7 +69,7 @@ RSpec.describe EvilCTF::Tools::CommandManager do
       allow(EvilCTF::Tools).to receive(:safe_autostage).with('inveigh', shell, {}, nil).and_return(true)
       executed = []
 
-      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, timeout:|
+      allow(EvilCTF::Execution).to receive(:run) do |_, cmd, **_opts|
         if cmd.include?("Test-Path 'C:\\Users\\Public\\Inveigh.ps1'")
           OpenStruct.new(output: 'MISSING', exitcode: 0)
         else

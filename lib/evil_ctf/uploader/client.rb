@@ -170,6 +170,7 @@ module EvilCTF
                                                 { name: File.basename(local_path), total: File.size(local_path),
                                                   sent: 0 })
         rescue StandardError => _e
+          # best-effort; ignore failures
         end
 
         # Use adapter file manager if available — but skip it when encryption
@@ -186,6 +187,7 @@ module EvilCTF
                                                     { name: File.basename(local_path), total: File.size(local_path),
                                                       sent: File.size(local_path) })
             rescue StandardError
+              # best-effort; ignore failures
             end
             # move into place
             escaped_final = EvilCTF::Utils.escape_ps_string(final_remote_path)
@@ -221,6 +223,7 @@ module EvilCTF
             begin
               EvilCTF::AppState.instance.clear_upload(upload_id)
             rescue StandardError
+              # best-effort; ignore failures
             end
           end
         end
@@ -267,6 +270,7 @@ module EvilCTF
                                                     { name: File.basename(local_path), total: local_size,
                                                       sent: bytes_sent })
             rescue StandardError
+              # best-effort; ignore failures
             end
             while (buf = f.read(chunk_size))
               payload = if xor_key
@@ -306,6 +310,7 @@ module EvilCTF
                                                       { name: File.basename(local_path), total: local_size,
                                                         sent: bytes_sent })
               rescue StandardError
+                # best-effort; ignore failures
               end
 
               # Verify remote length periodically (every 8th chunk) instead of
@@ -343,6 +348,7 @@ module EvilCTF
               nil
             end
           rescue StandardError
+            # best-effort; ignore failures
           end
           raise ::EvilCTF::Errors::UploadError, e.message
         end
@@ -408,6 +414,7 @@ module EvilCTF
                 nil
               end
             rescue StandardError
+              # best-effort; ignore failures
             end
             return { ok: false, local_hash: local_sha256, remote_hash: remote_hash,
                      error: "Hash mismatch: local=#{local_sha256}, remote=#{remote_hash}" }
@@ -419,6 +426,7 @@ module EvilCTF
               nil
             end
           rescue StandardError
+            # best-effort; ignore failures
           end
           return { ok: true, local_hash: local_sha256, remote_hash: remote_hash, tmp_hash: tmp_hash }
         end
@@ -430,6 +438,7 @@ module EvilCTF
             nil
           end
         rescue StandardError
+          # best-effort; ignore failures
         end
         true
       ensure
@@ -443,6 +452,7 @@ module EvilCTF
             end
           end
         rescue StandardError
+          # best-effort; ignore failures
         end
         begin
           begin
@@ -451,6 +461,7 @@ module EvilCTF
             nil
           end
         rescue StandardError
+          # best-effort; ignore failures
         end
       end
 
@@ -461,9 +472,7 @@ module EvilCTF
         end
         requested_remote_path = remote_path.to_s
         resolved_remote_path = resolve_remote_path(remote_path: requested_remote_path, retries: 10, delay: 1)
-        if resolved_remote_path && resolved_remote_path != requested_remote_path
-          @logger&.info("[Downloader] Resolved remote path '#{requested_remote_path}' to '#{resolved_remote_path}'")
-        end
+        @logger&.info("[Downloader] Resolved remote path '#{requested_remote_path}' to '#{resolved_remote_path}'") if resolved_remote_path && resolved_remote_path != requested_remote_path
         remote_path = resolved_remote_path || requested_remote_path
 
         # Prefer adapter file manager — but skip it when a xor_key is set so

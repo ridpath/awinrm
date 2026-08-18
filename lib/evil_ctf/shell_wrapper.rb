@@ -99,7 +99,13 @@ module EvilCTF
         puts ' This is a generic connection error. Check network connectivity and target system status'.colorize(:light_black)
       end
 
-      begin; conn.reset; rescue StandardError; end if defined?(conn) && conn.respond_to?(:reset)
+      return unless defined?(conn) && conn.respond_to?(:reset)
+
+      begin
+        conn.reset
+      rescue StandardError
+        # reset is best-effort on close; ignore failures
+      end
     end
 
     # ---------- Create connection ----------
