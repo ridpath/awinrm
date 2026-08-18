@@ -139,6 +139,7 @@ module EvilCTF
            'Static macro validation without executing'],
           ['validate aliases [names...]', 'Static alias validation without executing'],
           ['tools', 'List tool registry'],
+          ['tool <name> / tool all', 'Stage a specific tool / stage all available tools'],
           ['download_missing', 'Download all missing tools into ./tools'],
           ['dump_creds', 'Stage mimikatz & dump logon passwords'],
           ['lsass_dump', 'Stage procdump & dump LSASS to ./loot'],
