@@ -16,31 +16,62 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.2
-      - name: Install dependencies
-        run: bundle install --jobs 4 --retry 3
+          bundler-cache: true # frozen: lockfile is multi-Ruby compatible (see parallel pin in Gemfile)
       - name: Run RuboCop
         run: bundle exec rubocop
 
   unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Matches the declared "Ruby 3.0+ / 4.0-ready" story. The lockfile must
+        # stay installable in frozen mode on all three: no locked gem may
+        # require a newer Ruby than the oldest matrix entry (the parallel pin
+        # in the Gemfile exists for exactly this reason).
+        ruby: ['3.2', '3.3', '4.0']
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Run unit tests
+        run: bundle exec rspec --exclude-pattern "integration/**/*_spec.rb"
+
+  # Integration tests against a real Windows test VM. This job always runs and
+  # is a fast no-op by default: the specs self-skip unless AWINRM_INTEGRATION=1
+  # (repo variable) and the WINRM_TEST_* secrets are configured.
+  #
+  # Deliberately NO job-level `if` here: the job-level env context is not
+  # available to job `if` expressions, and a malformed if aborts the entire
+  # workflow dispatch (this exact bug broke CI dispatch in April 2026).
+  integration-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2
-      - name: Install dependencies
-        run: bundle install --jobs 4 --retry 3
-      - name: Run unit tests
+          ruby-version: 3.3
+          bundler-cache: true
+      - name: Run integration tests (skip when not enabled)
         env:
-          AWINRM_INTEGRATION: 0
-        run: bundle exec rspec
+          AWINRM_INTEGRATION: ${{ vars.AWINRM_INTEGRATION }}
+          WINRM_TEST_HOST: ${{ secrets.WINRM_TEST_HOST }}
+          WINRM_TEST_PORT: ${{ vars.WINRM_TEST_PORT }}
+          WINRM_TEST_USER: ${{ secrets.WINRM_TEST_USER }}
+          WINRM_TEST_PASSWORD: ${{ secrets.WINRM_TEST_PASSWORD }}
+          WINRM_TEST_HASH: ${{ secrets.WINRM_TEST_HASH }}
+          WINRM_TEST_SSL: ${{ vars.WINRM_TEST_SSL }}
+        run: bundle exec rspec spec/integration
 
   # Runs only for v* tag pushes, and only after lint + tests pass in the
   # same run — a release always ships verified code.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, unit-tests]
+    needs: [lint, unit-tests, integration-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
