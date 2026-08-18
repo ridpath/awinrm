@@ -7,6 +7,10 @@ module EvilCTF
   module EngineAudit
     LOG_PATH = File.expand_path('../../log/engine_audit.log', __dir__)
 
+    # Bound recorded backtraces — the audit log outgrows usefulness (and
+    # disk) when every error embeds a full frame list.
+    MAX_BACKTRACE_FRAMES = 15
+
     module_function
 
     def info(message:, source: 'engine')
@@ -17,7 +21,9 @@ module EvilCTF
       lines = [message.to_s]
       if error
         lines << "#{error.class}: #{error.message}"
-        lines.concat(Array(error.backtrace))
+        frames = Array(error.backtrace)
+        lines.concat(frames.first(MAX_BACKTRACE_FRAMES))
+        lines << "  ... #{frames.size - MAX_BACKTRACE_FRAMES} more frames" if frames.size > MAX_BACKTRACE_FRAMES
       end
       write(level: 'ERROR', source: source, message: lines.join("\n"))
     end

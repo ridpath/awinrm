@@ -14,11 +14,11 @@
 - [ ] 🟡 **Consolidate bypass scripts** — `BYPASS_4MSI_PS`, `ETW_BYPASS_PS`, `BYPASS_DETECTION_PS`, `BYPASS_VERIFICATION_PS` are string constants in `tools.rb`; extract to a dedicated `lib/evil_ctf/bypass.rb` module
 - [ ] 🟡 **Extract PowerShell payloads from macros** — macro step strings are embedded inline; consider a `macros/` directory with `.ps1` templates for readability and version control
 - [ ] 🟡 **Standardize result types** — `Execution.run` returns `OpenStruct`, `Uploader::Client.upload_file` returns `true`/`false`/`Hash`, `CommandDispatcher.dispatch` returns `Hash`; define a shared result type
-- [ ] 🟡 **Remove redundant `require 'evil_ctf/uploader'` in `session.rb`** — already loaded at the top of the file (`require_relative 'uploader'` at line 7 duplicates line 25)
+- [x] 🟡 **Remove redundant `require 'evil_ctf/uploader'` in `session.rb`** — ✅ Removed 2026-08-18: the `require 'evil_ctf/uploader'` line went; `require_relative 'uploader'` at the top of the file remains (same file, deduped by realpath)
 - [x] 🟡 **Fix `parse_hosts_file` ensure block** — ✅ Fixed 2026-07-17 (P0-5, bogus `ensure` referencing undefined `shell`/`conn`/`logger` removed); verified 2026-08-18: no `ensure` block remains in `Session.parse_hosts_file`
 - [x] 🔴 **Remove dead `load_config_profile` methods** — ✅ Removed 2026-08-18: `Session.load_config_profile` and `Tools.load_config_profile` deleted (plus the spec block exercising the dead `Tools` variant); profiles load via `Config::Profiles`
 - [x] 🟡 **Harden unsafe `YAML.load_file`** — ✅ Hardened 2026-08-18: `config/profiles.rb` (×2) and `tool_registry.rb` (×1) now use `YAML.safe_load_file`; the 4th site sat inside the removed dead `Session.load_config_profile`
-- [ ] 🟡 **Cap `EngineAudit` backtraces** — `log/engine_audit.log` is already ~740KB; bound the number of recorded backtrace frames
+- [x] 🟡 **Cap `EngineAudit` backtraces** — ✅ 2026-08-18: `EngineAudit.error` now records at most `MAX_BACKTRACE_FRAMES` (15) frames plus a `... N more frames` marker (the log had grown to ~870KB on full frame lists); specs pin the cap (frame 15 in, 16 out, marker text), full recording under the cap, and the no-error path
 - [ ] 🟡 **Standardize remote execution path** — `disable_defender` mixes direct `shell.run` with `Execution.run`; route all remote command execution through `Execution`
 - [x] 🟢 **Add frozen string literal to all files** — ✅ Verified 2026-08-18: only `lib/evil_ctf/tui.rb` was still missing `# frozen_string_literal: true`; added, all lib/bin files now carry it
 - [ ] 🟢 **Route `puts` through `SessionLogger`** — ~24 lib files print via raw `puts` instead of the session logger; stdout bypasses log channels
@@ -75,7 +75,7 @@
 ## Enumeration
 
 - [x] 🔴 **SQL enum needs error handling** — ✅ Fixed 2026-05-13: added `safe_output()` helper, changed bare `rescue` to `rescue StandardError`, moved hash/context checks inside `sqlcmd_present` guard.
-- [ ] 🟡 **Add WMI enumeration preset** — enumerate installed software, services, scheduled tasks via WMI. (WMI queries are already scattered across presets — `Win32_Product` in deep, `Win32_Service` in privilege, `schtasks`/`__EventFilter` in persistence — but there is no dedicated `wmi` preset; also note the `'dom'` case branch in `Enums.run_enumeration` is dead code: the dispatcher handles `dom` itself and never passes it through.)
+- [x] 🟡 **Add WMI enumeration preset** — ✅ 2026-08-18: new `wmi` preset in `Enums` (registered in `presets`, reachable via `--enum wmi` and `enum wmi`): `Win32_Product` (Name/Version/Vendor/InstallDate), `Win32_Service` (Name/DisplayName/State/StartMode/PathName), `Win32_ScheduledJob` (Name/JobName/Command/NextRunTime), `Win32_StartupCommand` (Name/Command/Location/User). The dead `'dom'` case branch in `run_enumeration` was removed at the same time — unreachable from all three paths (dispatcher `enum` handler, `--enum` connect preset, and `presets` all route `dom` to PowerView staging); a spec now pins that `dom` falls through to the default branch instead
 - [ ] 🟡 **Add registry enumeration** — check for saved credentials, browser data, RDP history
 - [ ] 🟡 **Improve enum cache persistence** — cache is per-session (in-memory); persist to disk for cross-session reuse
 - [ ] 🟢 **Add network share enumeration** — discover and access network shares accessible from the target. (Local shares are already listed via `net share` in the `privilege` preset; the missing piece is remote-share discovery from the target.)

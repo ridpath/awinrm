@@ -10,11 +10,15 @@ RSpec.describe EvilCTF::Enums do
 
   describe '.presets' do
     it 'returns a hash with expected preset keys' do
-      expect(described_class.presets).to include('basic', 'network', 'privilege', 'deep', 'sql')
+      expect(described_class.presets).to include('basic', 'network', 'privilege', 'deep', 'wmi', 'sql')
     end
 
-    it 'returns 7 presets total' do
-      expect(described_class.presets.keys.size).to eq(7)
+    it 'returns 8 presets total' do
+      expect(described_class.presets.keys.size).to eq(8)
+    end
+
+    it 'has no dom preset (the dispatcher stages PowerView for dom directly)' do
+      expect(described_class.presets).not_to have_key('dom')
     end
   end
 
@@ -70,6 +74,26 @@ RSpec.describe EvilCTF::Enums do
       expect(shell).to receive(:run).with(%r{whoami /priv})
       expect(shell).to receive(:run).with(/net localgroup Administrators/)
       described_class.run_enumeration(shell, type: 'privilege', cache: cache)
+    end
+
+    it 'runs the wmi preset: software, services, scheduled jobs, startup commands' do
+      expect(shell).to receive(:run).with(/Win32_Product/)
+      expect(shell).to receive(:run).with(/Win32_Service/)
+      expect(shell).to receive(:run).with(/Win32_ScheduledJob/)
+      expect(shell).to receive(:run).with(/Win32_StartupCommand/)
+      described_class.run_enumeration(shell, type: 'wmi', cache: cache)
+    end
+
+    it 'run_enum dispatches wmi through the preset lambda' do
+      expect(described_class).to receive(:run_enumeration).with(shell, type: 'wmi')
+      described_class.run_enum(shell, 'wmi')
+    end
+
+    it 'does not run a dom case in run_enumeration (dom is dispatcher-owned)' do
+      # an unknown type falls through to the default ['systeminfo'] branch,
+      # proving no dom branch exists anymore
+      expect(shell).to receive(:run).with('systeminfo')
+      described_class.run_enumeration(shell, type: 'dom', cache: cache)
     end
 
     it 'caches output after running' do

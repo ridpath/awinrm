@@ -114,7 +114,7 @@ ruby evil-ctf.rb --help         # root-level shim
 | `--webhook URL` | POST extracted loot to a webhook |
 | `--log FILE` | Append command output to a file |
 | `--log-session` | Enable structured session logging under `log/` |
-| `--enum TYPE` | Run an enumeration preset on connect (`basic`, `deep`, `sql`, …) |
+| `--enum TYPE` | Run an enumeration preset on connect (`basic`, `network`, `wmi`, `deep`, `sql`, …) |
 | `--fresh` | Bypass the enumeration cache and force re-staging of tools (skips the "already staged" hash check) |
 | `--user-agent AGENT` | Custom User-Agent for WinRM HTTP requests |
 | `--no-verify` | Skip connection validation |
@@ -136,7 +136,7 @@ On connect, AWINRM runs the optional banner, applies configured bypasses, and dr
 | `tool <name>` / `tool all` | Stage one tool / stage all available tools |
 | `download_missing` | Download all missing tools into `./tools` |
 | `fileops` | File operations menu (upload / download / ZIP) |
-| `enum [type]` | Run an enumeration preset (`basic`, `deep`, `sql`, …) |
+| `enum [type]` | Run an enumeration preset (`basic`, `network`, `wmi`, `deep`, `sql`, …) |
 | `dump_creds` | Stage Mimikatz and dump logon passwords |
 | `lsass_dump` | Stage ProcDump and dump LSASS into `./loot` |
 | `bypass-4msi` | Apply the AMSI bypass |

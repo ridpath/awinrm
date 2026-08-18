@@ -13,6 +13,7 @@ module EvilCTF
         'av_check' => ->(shell, _) { run_enumeration(shell, type: 'av_check') },
         'persistence' => ->(shell, _) { run_enumeration(shell, type: 'persistence') },
         'deep' => ->(shell, _) { run_enumeration(shell, type: 'deep') },
+        'wmi' => ->(shell, _) { run_enumeration(shell, type: 'wmi') },
         'sql' => ->(shell, _) { EvilCTF::SQLEnum.run_sql_enum(shell) }
       }
     end
@@ -67,13 +68,16 @@ module EvilCTF
                  'Get-Service | Where-Object {$_.Status -eq "Running"} | Select-Object Name,DisplayName,StartMode,Status',
                  'Get-WmiObject Win32_Product | Select-Object Name,Version,InstallDate'
                ]
-             when 'dom'
-               %w[
-                 Get-Domain
-                 Get-DomainController
-                 Get-DomainUser
-                 Get-DomainGroup
-                 Get-DomainComputer
+             when 'wmi'
+               # Dedicated WMI preset: installed software, services,
+               # scheduled jobs, and startup commands. ('dom' is not
+               # reachable here — the dispatcher handles it by staging
+               # PowerView directly.)
+               [
+                 'Get-WmiObject Win32_Product | Select-Object Name,Version,Vendor,InstallDate',
+                 'Get-WmiObject Win32_Service | Select-Object Name,DisplayName,State,StartMode,PathName',
+                 'Get-WmiObject Win32_ScheduledJob | Select-Object Name,JobName,Command,NextRunTime',
+                 'Get-WmiObject Win32_StartupCommand | Select-Object Name,Command,Location,User'
                ]
              else
                ['systeminfo']
