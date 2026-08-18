@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module EvilCTF
   class TUI
     # Simple in-memory trackers for sessions started via the TUI and a small
