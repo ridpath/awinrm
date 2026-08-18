@@ -10,12 +10,12 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.2
-          cache: 'bundler'
+          bundler-cache: true
       - name: Install dependencies
         run: bundle install --jobs 4 --retry 3
       - name: Run RuboCop
@@ -24,12 +24,12 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.2
-          cache: 'bundler'
+          bundler-cache: true
       - name: Install dependencies
         run: bundle install --jobs 4 --retry 3
       - name: Run unit tests

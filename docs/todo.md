@@ -129,7 +129,7 @@
 
 ## Testing
 
-- [ ] 🔴 **No integration tests** — all specs are unit tests with mocks; add integration tests against a Windows test VM. Note: the CI `integration-tests` job is a stub — it references `spec/integration` (does not exist) and swallows failures with `|| true`
+- [ ] 🔴 **No integration tests** — all specs are unit tests with mocks; add integration tests against a Windows test VM. Update 2026-08-18: the stub `integration-tests` CI job was removed (it referenced nonexistent `spec/integration`, swallowed failures with `|| true`, and its job-level `if` on the `env` context silently broke the entire workflow dispatch — CI has failed on every push since April because of it). Real integration tests should land with a `spec/integration/` directory
 - [x] 🔴 **Missing specs for critical paths** — ✅ 2026-05-13/2026-07-17: specs now exist for `connection`, `command_dispatcher`, `enums`, `banner`, `uploader/client`, and SMB upload. Remaining gap tracked below (`sql_enum.rb`)
 - [ ] 🟢 **Add `spec/sql_enum_spec.rb`** — last critical-path module without a spec
 - [ ] 🟡 **Add test fixtures for PowerShell output** — sample PS output for loot scanner, enum, and bypass verification tests
